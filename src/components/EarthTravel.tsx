@@ -66,6 +66,26 @@ const getDeviceId = (): string => {
   return deviceId;
 };
 
+// localStorage 저장/불러오기
+const saveToLocalStorage = (countries: VisitedCountry[]) => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('earth-travel-visited', JSON.stringify(countries));
+  }
+};
+
+const loadFromLocalStorage = (): VisitedCountry[] => {
+  if (typeof window === 'undefined') return [];
+  const saved = localStorage.getItem('earth-travel-visited');
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
 // Initial Default Visited Countries
 const INITIAL_VISITED_COUNTRIES: VisitedCountry[] = [
   { code: 'KR', ko: '대한민국', en: 'South Korea', flag: '🇰🇷', continent: '아시아', lat: 36.5, lng: 127.8, year: '거주', note: '홈그라운드' },
@@ -532,7 +552,8 @@ export default function EarthTravel() {
   const [syncStatus, setSyncStatus] = useState<'connecting' | 'synced' | 'offline'>('connecting');
 
   // Visited Countries
-  const [visitedCountries, setVisitedCountries] = useState<VisitedCountry[]>(INITIAL_VISITED_COUNTRIES);
+  const [visitedCountries, setVisitedCountries] = useState<VisitedCountry[]>([]);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [countrySearchQuery, setCountrySearchQuery] = useState('');
   const [countryFilterContinent, setCountryFilterContinent] = useState('전체');
   const [newVisitYear, setNewVisitYear] = useState('2025');
@@ -557,13 +578,22 @@ export default function EarthTravel() {
     setMounted(true);
   }, []);
 
-  // Device ID initialization
+  // Device ID initialization & localStorage load
   useEffect(() => {
     if (!mounted) return;
     const id = getDeviceId();
     setDeviceId(id);
+
+    // 먼저 localStorage에서 로드
+    const localData = loadFromLocalStorage();
+    if (localData.length > 0) {
+      setVisitedCountries(localData);
+      setIsDataLoaded(true);
+    }
+
     if (!supabase) {
       setSyncStatus('offline');
+      setIsDataLoaded(true);
     }
   }, [mounted]);
 
@@ -593,11 +623,14 @@ export default function EarthTravel() {
             note: row.note || undefined,
           }));
           setVisitedCountries(countries);
+          saveToLocalStorage(countries); // localStorage에도 백업
         }
         setSyncStatus('synced');
+        setIsDataLoaded(true);
       } catch (err) {
         console.error('Supabase load error', err);
         setSyncStatus('offline');
+        setIsDataLoaded(true);
       }
     };
 
@@ -614,6 +647,13 @@ export default function EarthTravel() {
 
     return () => { supabase.removeChannel(channel); };
   }, [deviceId]);
+
+  // visitedCountries 변경 시 localStorage에 저장
+  useEffect(() => {
+    if (isDataLoaded && visitedCountries.length > 0) {
+      saveToLocalStorage(visitedCountries);
+    }
+  }, [visitedCountries, isDataLoaded]);
 
   // Filtered presets
   const filteredPresets = useMemo(() => {
