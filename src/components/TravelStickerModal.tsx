@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 
 interface VisitedCountry {
   code: string;
@@ -30,6 +30,24 @@ const STAMP_LABELS = [
 ];
 
 export default function TravelStickerModal({ isOpen, onClose, visitedCountries }: TravelStickerModalProps) {
+  // 인쇄 시 print 클래스를 body에 추가
+  useEffect(() => {
+    const handleBeforePrint = () => {
+      document.body.classList.add('printing-stickers');
+    };
+    const handleAfterPrint = () => {
+      document.body.classList.remove('printing-stickers');
+    };
+
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+  }, []);
+
   if (!isOpen) return null;
 
   const handlePrint = () => {
@@ -38,14 +56,83 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
 
   return (
     <>
-      {/* Modal Backdrop - Hidden on print */}
+      {/* Print Styles - 인라인 style 태그로 확실하게 적용 */}
+      <style>{`
+        @media print {
+          /* 모든 요소 숨기기 */
+          body * {
+            visibility: hidden !important;
+          }
+
+          /* 인쇄 영역만 표시 */
+          #sticker-print-container,
+          #sticker-print-container * {
+            visibility: visible !important;
+          }
+
+          #sticker-print-container {
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            background: white !important;
+            z-index: 999999 !important;
+            display: block !important;
+            overflow: visible !important;
+          }
+
+          .sticker-print-grid {
+            display: grid !important;
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 5mm !important;
+            padding: 5mm !important;
+            background: white !important;
+          }
+
+          .sticker-print-item {
+            width: 95mm !important;
+            height: 95mm !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
+
+          /* 모달 숨기기 */
+          .modal-backdrop,
+          .modal-container {
+            display: none !important;
+            visibility: hidden !important;
+          }
+
+          @page {
+            size: A4 portrait;
+            margin: 5mm;
+          }
+        }
+
+        /* 화면에서는 인쇄 영역 숨기기 */
+        @media screen {
+          #sticker-print-container {
+            position: absolute !important;
+            left: -9999px !important;
+            top: -9999px !important;
+            width: 210mm !important;
+            visibility: hidden !important;
+          }
+        }
+      `}</style>
+
+      {/* Modal Backdrop */}
       <div
-        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] print:!hidden"
+        className="modal-backdrop fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999]"
         onClick={onClose}
       />
 
-      {/* Modal Container - Hidden on print */}
-      <div className="fixed inset-4 md:inset-10 bg-slate-900 rounded-2xl border border-slate-700 z-[10000] flex flex-col overflow-hidden print:!hidden">
+      {/* Modal Container */}
+      <div className="modal-container fixed inset-4 md:inset-10 bg-slate-900 rounded-2xl border border-slate-700 z-[10000] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-800">
           <div className="flex items-center gap-3">
@@ -71,11 +158,11 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
           </div>
         </div>
 
-        {/* Preview Grid - Screen only */}
+        {/* Preview Grid */}
         <div className="flex-1 overflow-y-auto p-6 bg-slate-950">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {visitedCountries.map((country, index) => (
-              <StickerItem key={country.code} country={country} index={index} />
+              <StickerCard key={country.code} country={country} index={index} />
             ))}
           </div>
 
@@ -83,166 +170,143 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
             <div className="flex flex-col items-center justify-center h-64 text-slate-500">
               <span className="text-4xl mb-3">🗺️</span>
               <p className="text-sm">아직 방문한 국가가 없습니다.</p>
-              <p className="text-xs text-slate-600">국가를 추가하면 스티커가 생성됩니다.</p>
             </div>
           )}
         </div>
 
         {/* Footer */}
         <div className="p-3 border-t border-slate-800 bg-slate-900/80 text-center text-xs text-slate-500">
-          💡 Tip: 스티커 용지(A4)에 인쇄 후 오려서 사용하세요. 총 {visitedCountries.length}개 스티커
+          💡 스티커 용지(A4)에 인쇄 후 오려서 사용하세요. 총 {visitedCountries.length}개 스티커
         </div>
       </div>
 
-      {/* Print Area - Only visible during print */}
-      <div id="print-sticker-area" className="hidden print:!block print:!visible">
-        <div className="print-grid">
+      {/* Print Container - 인쇄 전용 (화면에서는 숨김) */}
+      <div id="sticker-print-container">
+        <div className="sticker-print-grid">
           {visitedCountries.map((country, index) => (
-            <StickerItem key={country.code} country={country} index={index} forPrint />
+            <StickerCard key={`print-${country.code}`} country={country} index={index} forPrint />
           ))}
         </div>
       </div>
-
-      {/* Print Styles */}
-      <style jsx global>{`
-        @media print {
-          /* Hide everything by default */
-          body > * {
-            display: none !important;
-          }
-
-          /* Show only print area */
-          #print-sticker-area {
-            display: block !important;
-            visibility: visible !important;
-            position: static !important;
-            width: 100% !important;
-            height: auto !important;
-            overflow: visible !important;
-            background: white !important;
-          }
-
-          #print-sticker-area * {
-            visibility: visible !important;
-          }
-
-          .print-grid {
-            display: grid !important;
-            grid-template-columns: repeat(2, 1fr) !important;
-            gap: 8mm !important;
-            padding: 5mm !important;
-            width: 100% !important;
-          }
-
-          .print-sticker {
-            width: 90mm !important;
-            height: 90mm !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            margin-bottom: 5mm !important;
-          }
-
-          @page {
-            size: A4 portrait;
-            margin: 10mm;
-          }
-        }
-      `}</style>
     </>
   );
 }
 
-// Sticker Item Component
-function StickerItem({ country, index, forPrint = false }: { country: VisitedCountry; index: number; forPrint?: boolean }) {
+function StickerCard({ country, index, forPrint = false }: { country: VisitedCountry; index: number; forPrint?: boolean }) {
+  const containerStyle: React.CSSProperties = forPrint ? {
+    width: '95mm',
+    height: '95mm',
+    padding: '12px',
+    borderRadius: '16px',
+    border: '3px dashed #d97706',
+    background: 'linear-gradient(135deg, #fffbeb 0%, #fed7aa 100%)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textAlign: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+    boxSizing: 'border-box',
+  } : {};
+
   const baseClass = forPrint
-    ? "print-sticker p-4 rounded-2xl border-4 border-dashed border-amber-600 bg-gradient-to-br from-amber-50 to-orange-100 flex flex-col items-center justify-center text-center relative overflow-hidden"
+    ? "sticker-print-item"
     : "aspect-square p-4 rounded-2xl border-4 border-dashed border-amber-600/60 bg-gradient-to-br from-amber-50 to-orange-100 flex flex-col items-center justify-center text-center relative overflow-hidden";
 
   return (
-    <div
-      className={baseClass}
-      style={{
-        boxShadow: forPrint ? 'none' : '0 4px 20px rgba(0,0,0,0.15), inset 0 2px 10px rgba(255,255,255,0.3)',
-      }}
-    >
-      {/* Vintage texture overlay */}
-      <div
-        className="absolute inset-0 opacity-20 pointer-events-none"
-        style={{
-          backgroundImage: `url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1IiBoZWlnaHQ9IjUiPgo8cmVjdCB3aWR0aD0iNSIgaGVpZ2h0PSI1IiBmaWxsPSIjZmZmIj48L3JlY3Q+CjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNjY2MiPjwvcmVjdD4KPC9zdmc+")`
-        }}
-      />
-
+    <div className={baseClass} style={containerStyle}>
       {/* Corner decorations */}
-      <div className="absolute top-2 left-2 w-3 h-3 border-t-2 border-l-2 border-amber-700/40 rounded-tl" />
-      <div className="absolute top-2 right-2 w-3 h-3 border-t-2 border-r-2 border-amber-700/40 rounded-tr" />
-      <div className="absolute bottom-2 left-2 w-3 h-3 border-b-2 border-l-2 border-amber-700/40 rounded-bl" />
-      <div className="absolute bottom-2 right-2 w-3 h-3 border-b-2 border-r-2 border-amber-700/40 rounded-br" />
+      <div style={{ position: 'absolute', top: 8, left: 8, width: 12, height: 12, borderTop: '2px solid #b45309', borderLeft: '2px solid #b45309', borderRadius: '4px 0 0 0' }} />
+      <div style={{ position: 'absolute', top: 8, right: 8, width: 12, height: 12, borderTop: '2px solid #b45309', borderRight: '2px solid #b45309', borderRadius: '0 4px 0 0' }} />
+      <div style={{ position: 'absolute', bottom: 8, left: 8, width: 12, height: 12, borderBottom: '2px solid #b45309', borderLeft: '2px solid #b45309', borderRadius: '0 0 0 4px' }} />
+      <div style={{ position: 'absolute', bottom: 8, right: 8, width: 12, height: 12, borderBottom: '2px solid #b45309', borderRight: '2px solid #b45309', borderRadius: '0 0 4px 0' }} />
 
-      {/* Top stamp label */}
-      <div
-        className="absolute top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-rose-700 text-white font-bold tracking-wider rounded-sm shadow-sm"
-        style={{ fontSize: forPrint ? '8px' : '8px', transform: 'translateX(-50%) rotate(-3deg)' }}
-      >
+      {/* Stamp label */}
+      <div style={{
+        position: 'absolute',
+        top: 12,
+        left: '50%',
+        transform: 'translateX(-50%) rotate(-3deg)',
+        background: '#be123c',
+        color: 'white',
+        fontSize: '8px',
+        fontWeight: 'bold',
+        padding: '2px 8px',
+        borderRadius: '2px',
+        letterSpacing: '0.5px',
+      }}>
         {STAMP_LABELS[index % STAMP_LABELS.length]}
       </div>
 
-      {/* Flag emoji */}
-      <div className={forPrint ? "text-5xl mb-2" : "text-5xl md:text-6xl mb-2 drop-shadow-md"}>
+      {/* Flag */}
+      <div style={{ fontSize: forPrint ? '48px' : '56px', marginBottom: '8px' }}>
         {country.flag}
       </div>
 
-      {/* Country code badge */}
-      <div
-        className="px-2 py-0.5 bg-slate-800 text-amber-300 font-mono font-bold rounded mb-1 border border-slate-700"
-        style={{ fontSize: forPrint ? '10px' : '12px' }}
-      >
+      {/* Country code */}
+      <div style={{
+        background: '#1e293b',
+        color: '#fcd34d',
+        fontSize: '11px',
+        fontFamily: 'monospace',
+        fontWeight: 'bold',
+        padding: '2px 8px',
+        borderRadius: '4px',
+        marginBottom: '4px',
+        border: '1px solid #334155',
+      }}>
         [{country.code}]
       </div>
 
       {/* Country name */}
-      <div
-        className="font-bold text-slate-800 leading-tight"
-        style={{ fontSize: forPrint ? '14px' : '16px' }}
-      >
+      <div style={{ fontSize: forPrint ? '14px' : '16px', fontWeight: 'bold', color: '#1e293b' }}>
         {country.ko}
       </div>
-      <div
-        className="text-slate-500 font-medium"
-        style={{ fontSize: forPrint ? '9px' : '10px' }}
-      >
+      <div style={{ fontSize: '9px', color: '#64748b' }}>
         {country.en}
       </div>
 
-      {/* Year and note */}
+      {/* Year & Note */}
       {(country.year || country.note) && (
-        <div className="mt-2 px-2 py-1 bg-amber-200/60 rounded-lg border border-amber-400/40 max-w-full">
-          <div
-            className="font-semibold text-amber-800 truncate"
-            style={{ fontSize: forPrint ? '10px' : '12px' }}
-          >
-            {country.year && <span>{country.year}</span>}
-            {country.year && country.note && <span> • </span>}
-            {country.note && <span className="font-normal">{country.note}</span>}
+        <div style={{
+          marginTop: '8px',
+          padding: '4px 8px',
+          background: 'rgba(251, 191, 36, 0.4)',
+          borderRadius: '6px',
+          border: '1px solid rgba(251, 191, 36, 0.6)',
+          maxWidth: '90%',
+        }}>
+          <div style={{ fontSize: '10px', fontWeight: '600', color: '#92400e' }}>
+            {country.year}{country.year && country.note ? ' • ' : ''}{country.note}
           </div>
         </div>
       )}
 
-      {/* Bottom stamp decoration */}
-      <div
-        className="absolute bottom-3 right-3 text-amber-700/30 font-serif font-bold"
-        style={{ fontSize: forPrint ? '20px' : '24px', transform: 'rotate(-15deg)' }}
-      >
+      {/* Check mark */}
+      <div style={{
+        position: 'absolute',
+        bottom: 12,
+        right: 12,
+        fontSize: '20px',
+        color: 'rgba(180, 83, 9, 0.3)',
+        fontWeight: 'bold',
+        transform: 'rotate(-15deg)',
+      }}>
         ✓
       </div>
 
-      {/* Continent badge */}
-      <div
-        className="absolute bottom-3 left-3 text-slate-500 font-medium bg-white/60 px-1.5 py-0.5 rounded"
-        style={{ fontSize: forPrint ? '8px' : '8px' }}
-      >
+      {/* Continent */}
+      <div style={{
+        position: 'absolute',
+        bottom: 12,
+        left: 12,
+        fontSize: '8px',
+        color: '#64748b',
+        background: 'rgba(255,255,255,0.7)',
+        padding: '2px 6px',
+        borderRadius: '4px',
+      }}>
         {country.continent}
       </div>
     </div>
