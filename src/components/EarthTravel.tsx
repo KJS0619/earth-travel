@@ -556,7 +556,7 @@ export default function EarthTravel() {
   const [isStickerModalOpen, setIsStickerModalOpen] = useState(false);
 
   // Map
-  const [mapTheme, setMapTheme] = useState<'dark' | 'satellite' | 'light'>('dark');
+  const [mapTheme, setMapTheme] = useState<'dark' | 'satellite' | 'light' | 'korean'>('dark');
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
@@ -741,6 +741,10 @@ export default function EarthTravel() {
       options = { maxZoom: 19 };
     } else if (mapTheme === 'light') {
       tileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+      options = { maxZoom: 18 };
+    } else if (mapTheme === 'korean') {
+      // VWorld 한글 지도 (대한민국 공식 오픈 타일)
+      tileUrl = 'https://xdworld.vworld.kr/2d/Base/service/{z}/{x}/{y}.png';
       options = { maxZoom: 18 };
     }
 
@@ -1101,9 +1105,9 @@ export default function EarthTravel() {
 
           {/* MAP CONTROLS */}
           <div className="pointer-events-auto flex items-center space-x-1.5 bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-slate-700/80 shadow-2xl text-xs">
-            {(['dark', 'satellite', 'light'] as const).map((theme) => (
+            {(['dark', 'satellite', 'light', 'korean'] as const).map((theme) => (
               <button key={theme} onClick={() => setMapTheme(theme)} className={`px-2.5 py-1 rounded-xl transition cursor-pointer font-medium ${mapTheme === theme ? 'bg-cyan-500 text-slate-950 font-bold shadow-md' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}>
-                {theme === 'dark' ? '다크' : theme === 'satellite' ? '위성' : '라이트'}
+                {theme === 'dark' ? '다크' : theme === 'satellite' ? '위성' : theme === 'light' ? '라이트' : '🇰🇷 한글'}
               </button>
             ))}
             <div className="h-4 w-px bg-slate-700 mx-1" />
