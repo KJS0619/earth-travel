@@ -59,9 +59,16 @@ interface LegDistance {
 const getDeviceId = (): string => {
   if (typeof window === 'undefined') return '';
   let deviceId = localStorage.getItem('earth-travel-device-id');
+  console.log('[DEBUG] localStorage device_id:', deviceId);
   if (!deviceId) {
-    deviceId = 'device-' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-    localStorage.setItem('earth-travel-device-id', deviceId);
+    // localStorage가 비어있으면 기존 ID 사용 시도
+    deviceId = 'device-e5bfoxfim6vmul3pkys';
+    try {
+      localStorage.setItem('earth-travel-device-id', deviceId);
+      console.log('[DEBUG] Set device_id to:', deviceId);
+    } catch (e) {
+      console.error('[DEBUG] localStorage setItem failed:', e);
+    }
   }
   return deviceId;
 };
@@ -597,19 +604,31 @@ export default function EarthTravel() {
     }
   }, [mounted]);
 
-  // Cloud Sync with Supabase
+  // Cloud Sync with Supabase (localStorage 우선, Supabase는 백업용)
   useEffect(() => {
     if (!deviceId || !supabase) return;
 
-    const loadCountries = async () => {
+    const syncWithSupabase = async () => {
+      const localData = loadFromLocalStorage();
+
       try {
         const { data, error } = await supabase
           .from('visited_countries')
           .select('*')
           .eq('device_id', deviceId);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Supabase query error:', error.message);
+          // 에러 시 localStorage 데이터 유지
+          if (localData.length > 0) {
+            setVisitedCountries(localData);
+          }
+          setSyncStatus('offline');
+          setIsDataLoaded(true);
+          return;
+        }
 
+        // Supabase 데이터가 있으면 사용
         if (data && data.length > 0) {
           const countries: VisitedCountry[] = data.map((row) => ({
             code: row.code,
@@ -623,25 +642,47 @@ export default function EarthTravel() {
             note: row.note || undefined,
           }));
           setVisitedCountries(countries);
-          saveToLocalStorage(countries); // localStorage에도 백업
+          saveToLocalStorage(countries);
+        } else if (localData.length > 0) {
+          // Supabase가 비었지만 localStorage에 데이터가 있으면 Supabase에 업로드
+          console.log('Uploading localStorage data to Supabase...');
+          for (const country of localData) {
+            await supabase.from('visited_countries').upsert({
+              device_id: deviceId,
+              code: country.code,
+              ko: country.ko,
+              en: country.en,
+              flag: country.flag,
+              continent: country.continent,
+              lat: country.lat,
+              lng: country.lng,
+              year: country.year || null,
+              note: country.note || null,
+            });
+          }
+          setVisitedCountries(localData);
         }
         setSyncStatus('synced');
         setIsDataLoaded(true);
       } catch (err) {
-        console.error('Supabase load error', err);
+        console.error('Supabase sync error:', err);
+        // 에러 시 localStorage 데이터 유지
+        if (localData.length > 0) {
+          setVisitedCountries(localData);
+        }
         setSyncStatus('offline');
         setIsDataLoaded(true);
       }
     };
 
-    loadCountries();
+    syncWithSupabase();
 
     // Realtime subscription
     const channel = supabase
       .channel('visited_countries_changes')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'visited_countries', filter: `device_id=eq.${deviceId}` },
-        () => { loadCountries(); }
+        () => { syncWithSupabase(); }
       )
       .subscribe();
 

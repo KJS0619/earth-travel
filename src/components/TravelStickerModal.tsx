@@ -1,6 +1,21 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+// body에 직접 렌더링하기 위한 Portal 컴포넌트
+function PrintPortal({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  if (!mounted) return null;
+
+  return createPortal(children, document.body);
+}
 
 interface VisitedCountry {
   code: string;
@@ -59,58 +74,79 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
       {/* Print Styles */}
       <style>{`
         @media print {
+          /* 기본 페이지 설정 */
+          @page {
+            size: A4 portrait;
+            margin: 10mm;
+          }
+
           /* 모든 요소 숨기기 */
-          *, *::before, *::after {
-            visibility: hidden !important;
+          html, body {
+            height: auto !important;
+            overflow: visible !important;
+          }
+
+          body > * {
+            display: none !important;
           }
 
           /* 인쇄 영역만 표시 */
-          #sticker-print-container,
-          #sticker-print-container * {
-            visibility: visible !important;
-          }
-
-          #sticker-print-container {
+          body > #sticker-print-area {
             display: block !important;
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            background: white !important;
-            z-index: 999999 !important;
           }
 
-          .sticker-print-grid {
-            display: flex !important;
-            flex-wrap: wrap !important;
-            gap: 4mm !important;
-            padding: 3mm !important;
+          #sticker-print-area {
+            display: block !important;
+            position: static !important;
+            left: auto !important;
+            top: auto !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+            visibility: visible !important;
             background: white !important;
-            justify-content: center !important;
+          }
+
+          .print-page {
+            width: 190mm;
+            height: 277mm;
+            page-break-after: always;
+            break-after: page;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding-top: 5mm;
+            box-sizing: border-box;
+          }
+
+          .print-page:last-child {
+            page-break-after: auto;
+            break-after: auto;
+          }
+
+          .print-row {
+            display: flex;
+            justify-content: center;
+            gap: 4mm;
+            margin-bottom: 4mm;
           }
 
           .sticker-print-item {
-            width: 94mm !important;
-            height: 86mm !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
+            width: 92mm !important;
+            height: 85mm !important;
+            flex-shrink: 0 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
           }
-
-          @page {
-            size: A4 portrait;
-            margin: 5mm;
-          }
         }
 
         /* 화면에서는 인쇄 영역 숨기기 */
-        #sticker-print-container {
+        #sticker-print-area {
           position: fixed;
           left: -9999px;
           top: 0;
-          width: 210mm;
           visibility: hidden;
           pointer-events: none;
         }
@@ -172,13 +208,33 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
       </div>
 
       {/* Print Container - 인쇄 전용 (화면에서는 숨김) */}
-      <div id="sticker-print-container">
-        <div className="sticker-print-grid">
-          {visitedCountries.map((country, index) => (
-            <StickerCard key={`print-${country.code}`} country={country} index={index} forPrint />
-          ))}
+      {/* body 직접 자식으로 렌더링하기 위해 Portal 사용 */}
+      <PrintPortal>
+        <div id="sticker-print-area">
+          {/* 페이지별로 6개씩 그룹화 (3행 x 2열) */}
+          {Array.from({ length: Math.ceil(visitedCountries.length / 6) }).map((_, pageIndex) => {
+            const pageCountries = visitedCountries.slice(pageIndex * 6, pageIndex * 6 + 6);
+            const rows = Array.from({ length: Math.ceil(pageCountries.length / 2) });
+
+            return (
+              <div key={`page-${pageIndex}`} className="print-page">
+                {rows.map((_, rowIndex) => (
+                  <div key={`row-${rowIndex}`} className="print-row">
+                    {pageCountries.slice(rowIndex * 2, rowIndex * 2 + 2).map((country, colIndex) => (
+                      <StickerCard
+                        key={`print-${country.code}`}
+                        country={country}
+                        index={pageIndex * 6 + rowIndex * 2 + colIndex}
+                        forPrint
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
         </div>
-      </div>
+      </PrintPortal>
     </>
   );
 }
