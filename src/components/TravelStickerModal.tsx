@@ -71,33 +71,37 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
           }
 
           #sticker-print-container {
-            position: fixed !important;
+            position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: 100% !important;
-            height: auto !important;
+            width: 200mm !important;
             background: white !important;
             z-index: 999999 !important;
             display: block !important;
-            overflow: visible !important;
           }
 
           .sticker-print-grid {
-            display: grid !important;
-            grid-template-columns: repeat(2, 1fr) !important;
-            gap: 5mm !important;
-            padding: 5mm !important;
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 3mm !important;
+            padding: 3mm !important;
             background: white !important;
+            justify-content: flex-start !important;
           }
 
           .sticker-print-item {
             width: 95mm !important;
-            height: 95mm !important;
+            min-width: 95mm !important;
+            max-width: 95mm !important;
+            height: 88mm !important;
+            min-height: 88mm !important;
+            max-height: 88mm !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
+            flex-shrink: 0 !important;
           }
 
           /* 모달 숨기기 */
@@ -109,7 +113,7 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
 
           @page {
             size: A4 portrait;
-            margin: 5mm;
+            margin: 8mm;
           }
         }
 
@@ -195,9 +199,9 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
 function StickerCard({ country, index, forPrint = false }: { country: VisitedCountry; index: number; forPrint?: boolean }) {
   const containerStyle: React.CSSProperties = forPrint ? {
     width: '95mm',
-    height: '95mm',
-    padding: '12px',
-    borderRadius: '16px',
+    height: '88mm',
+    padding: '10px',
+    borderRadius: '14px',
     border: '3px dashed #d97706',
     background: 'linear-gradient(135deg, #fffbeb 0%, #fed7aa 100%)',
     display: 'flex',
