@@ -59,67 +59,44 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
       {/* Print Styles */}
       <style>{`
         @media print {
-          /* 전체 페이지 초기화 */
-          html, body {
-            margin: 0 !important;
-            padding: 0 !important;
-            width: 100% !important;
-            height: auto !important;
-            overflow: visible !important;
-            background: white !important;
-          }
-
           /* 모든 요소 숨기기 */
-          body > *:not(#sticker-print-container) {
-            display: none !important;
+          *, *::before, *::after {
+            visibility: hidden !important;
           }
 
-          /* 인쇄 영역 표시 */
-          #sticker-print-container {
-            display: block !important;
-            visibility: visible !important;
-            position: static !important;
-            width: 100% !important;
-            height: auto !important;
-            overflow: visible !important;
-            background: white !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-
+          /* 인쇄 영역만 표시 */
+          #sticker-print-container,
           #sticker-print-container * {
             visibility: visible !important;
+          }
+
+          #sticker-print-container {
+            display: block !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            background: white !important;
+            z-index: 999999 !important;
           }
 
           .sticker-print-grid {
             display: flex !important;
             flex-wrap: wrap !important;
             gap: 4mm !important;
-            padding: 2mm !important;
+            padding: 3mm !important;
             background: white !important;
             justify-content: center !important;
-            align-content: flex-start !important;
           }
 
           .sticker-print-item {
             width: 94mm !important;
             height: 86mm !important;
-            flex: 0 0 94mm !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
-            margin-bottom: 2mm !important;
-          }
-
-          /* 모달 완전히 숨기기 */
-          .modal-backdrop,
-          .modal-container {
-            display: none !important;
-            visibility: hidden !important;
-            position: absolute !important;
-            left: -9999px !important;
           }
 
           @page {
@@ -129,17 +106,13 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
         }
 
         /* 화면에서는 인쇄 영역 숨기기 */
-        @media screen {
-          #sticker-print-container {
-            position: fixed !important;
-            left: -9999px !important;
-            top: 0 !important;
-            width: 210mm !important;
-            height: 0 !important;
-            overflow: hidden !important;
-            visibility: hidden !important;
-            pointer-events: none !important;
-          }
+        #sticker-print-container {
+          position: fixed;
+          left: -9999px;
+          top: 0;
+          width: 210mm;
+          visibility: hidden;
+          pointer-events: none;
         }
       `}</style>
 
