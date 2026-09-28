@@ -793,34 +793,44 @@ export default function EarthTravel() {
     }
   }, [weatherCache, isLoadingWeather]);
 
+  // Static rates for currencies not supported by Frankfurter API (approximate, 2024)
+  const STATIC_RATES: ExchangeRates = {
+    KRW: 1,
+    // ECB supported currencies (will be updated from API)
+    USD: 1350, EUR: 1500, JPY: 9, GBP: 1750, CHF: 1550,
+    AUD: 900, CAD: 1000, CNY: 190, HKD: 175, SGD: 1020,
+    THB: 40, SEK: 130, NOK: 130, DKK: 200, PLN: 340,
+    CZK: 60, HUF: 4, TRY: 42, NZD: 830, MXN: 80,
+    BRL: 280, INR: 16, IDR: 0.09, MYR: 300, PHP: 24,
+    ZAR: 75, ISK: 10,
+    // Not supported by Frankfurter API (static only)
+    TWD: 43, VND: 0.055, AED: 370, EGP: 28,
+    ARS: 2, CLP: 1.5, PEN: 365, MNT: 0.4, MAD: 135
+  };
+
   // Fetch exchange rates (cached globally)
   const fetchExchangeRates = useCallback(async () => {
     if (Object.keys(exchangeRates).length > 0) return;
     try {
-      // Frankfurter API: EUR 기준으로 주요 통화 환율 조회
-      const res = await fetch('https://api.frankfurter.app/latest?from=EUR&to=KRW,USD,JPY,GBP,CHF,AUD,CAD,CNY,HKD,SGD,THB,TWD,SEK,NOK,DKK,PLN,CZK,HUF,TRY,NZD,MXN,BRL,INR,IDR,MYR,PHP,VND,AED,ZAR');
+      // Frankfurter API: EUR 기준 (ECB 지원 통화만)
+      const res = await fetch('https://api.frankfurter.app/latest?from=EUR&to=KRW,USD,JPY,GBP,CHF,AUD,CAD,CNY,HKD,SGD,THB,SEK,NOK,DKK,PLN,CZK,HUF,TRY,NZD,MXN,BRL,INR,IDR,MYR,PHP,ZAR,ISK');
       if (!res.ok) throw new Error('Exchange API error');
       const data = await res.json();
 
       // KRW 기준으로 변환: 1 외화 = X KRW
-      const krwPerEur = data.rates.KRW || 1500; // fallback
-      const rates: ExchangeRates = { KRW: 1, EUR: Math.round(krwPerEur) };
+      const krwPerEur = data.rates.KRW || 1500;
+      const rates: ExchangeRates = { ...STATIC_RATES, EUR: Math.round(krwPerEur) };
 
       for (const [currency, eurRate] of Object.entries(data.rates)) {
         if (currency === 'KRW') continue;
-        // 1 외화 = (KRW/EUR) / (외화/EUR) = KRW per 외화
         rates[currency] = Math.round(krwPerEur / (eurRate as number));
       }
 
       setExchangeRates(rates);
     } catch (err) {
       console.error('Exchange rate fetch error:', err);
-      // Fallback rates (approximate)
-      setExchangeRates({
-        KRW: 1, USD: 1350, EUR: 1500, JPY: 9, GBP: 1750,
-        CNY: 190, HKD: 175, SGD: 1020, THB: 40, TWD: 43,
-        AUD: 900, CAD: 1000, CHF: 1550
-      });
+      // Use static fallback rates
+      setExchangeRates(STATIC_RATES);
     }
   }, [exchangeRates]);
 
@@ -837,8 +847,8 @@ export default function EarthTravel() {
     if (!currency || currency === 'KRW') return '';
     const rate = exchangeRates[currency];
     if (!rate) return '';
-    if (currency === 'JPY' || currency === 'VND' || currency === 'IDR') {
-      return `100${currency}≈${(rate * 100).toLocaleString()}원`;
+    if (currency === 'JPY' || currency === 'VND' || currency === 'IDR' || currency === 'HUF') {
+      return `100${currency}≈${Math.round(rate * 100).toLocaleString()}원`;
     }
     return `1${currency}≈${rate.toLocaleString()}원`;
   }, [exchangeRates]);
