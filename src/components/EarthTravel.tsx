@@ -743,9 +743,9 @@ export default function EarthTravel() {
       tileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
       options = { maxZoom: 18 };
     } else if (mapTheme === 'korean') {
-      // VWorld 한글 지도 (대한민국 공식 오픈 타일)
-      tileUrl = 'https://xdworld.vworld.kr/2d/Base/service/{z}/{x}/{y}.png';
-      options = { maxZoom: 18 };
+      // Google 한국어 지도 (전 세계 한글 라벨)
+      tileUrl = 'https://{s}.google.com/vt/lyrs=m&hl=ko&x={x}&y={y}&z={z}';
+      options = { maxZoom: 19, subdomains: ['mt0', 'mt1', 'mt2', 'mt3'] };
     }
 
     tileLayerRef.current = L.tileLayer(tileUrl, options).addTo(map);
