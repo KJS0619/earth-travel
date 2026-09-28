@@ -59,15 +59,12 @@ interface LegDistance {
 const getDeviceId = (): string => {
   if (typeof window === 'undefined') return '';
   let deviceId = localStorage.getItem('earth-travel-device-id');
-  console.log('[DEBUG] localStorage device_id:', deviceId);
   if (!deviceId) {
-    // localStorage가 비어있으면 기존 ID 사용 시도
-    deviceId = 'device-e5bfoxfim6vmul3pkys';
+    deviceId = 'device-' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
     try {
       localStorage.setItem('earth-travel-device-id', deviceId);
-      console.log('[DEBUG] Set device_id to:', deviceId);
     } catch (e) {
-      console.error('[DEBUG] localStorage setItem failed:', e);
+      console.error('localStorage setItem failed:', e);
     }
   }
   return deviceId;
