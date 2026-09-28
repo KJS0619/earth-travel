@@ -744,8 +744,8 @@ export default function EarthTravel() {
       options = { maxZoom: 18 };
     } else if (mapTheme === 'korean') {
       // Google 한국어 지도 (전 세계 한글 라벨)
-      tileUrl = 'https://{s}.google.com/vt/lyrs=m&hl=ko&x={x}&y={y}&z={z}';
-      options = { maxZoom: 19, subdomains: ['mt0', 'mt1', 'mt2', 'mt3'] };
+      tileUrl = 'https://mt1.google.com/vt/lyrs=m&hl=ko&x={x}&y={y}&z={z}';
+      options = { maxZoom: 19 };
     }
 
     tileLayerRef.current = L.tileLayer(tileUrl, options).addTo(map);
