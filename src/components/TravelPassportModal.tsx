@@ -37,7 +37,7 @@ export default function TravelPassportModal({ isOpen, onClose, visitedCountries 
   if (!isOpen) return null;
 
   const totalCountries = visitedCountries.length;
-  const worldPercent = ((totalCountries / 195) * 100).toFixed(1);
+  const worldPercent = ((totalCountries / 204) * 100).toFixed(1);
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
 
   // Continent stats
