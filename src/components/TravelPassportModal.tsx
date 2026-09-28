@@ -29,7 +29,7 @@ export default function TravelPassportModal({ isOpen, onClose, visitedCountries 
 
   useEffect(() => {
     // Check if Web Share API is available
-    if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
       setCanShare(true);
     }
   }, []);
