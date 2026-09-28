@@ -1,11 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { initializeApp, FirebaseApp } from 'firebase/app';
-import { getAuth, signInAnonymously, Auth, User } from 'firebase/auth';
-import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, Firestore } from 'firebase/firestore';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+
+// Supabase initialization
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase: SupabaseClient | null =
+  supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 // Types
 interface CountryInfo {
@@ -50,24 +54,16 @@ interface LegDistance {
   distNM: number;
 }
 
-// Firebase initialization
-let app: FirebaseApp | null = null;
-let auth: Auth | null = null;
-let db: Firestore | null = null;
-
-const firebaseConfig = process.env.NEXT_PUBLIC_FIREBASE_CONFIG
-  ? JSON.parse(process.env.NEXT_PUBLIC_FIREBASE_CONFIG)
-  : null;
-
-if (firebaseConfig && typeof window !== 'undefined') {
-  try {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-  } catch (err) {
-    console.error('Firebase init error', err);
+// Device ID for user identification (localStorage)
+const getDeviceId = (): string => {
+  if (typeof window === 'undefined') return '';
+  let deviceId = localStorage.getItem('earth-travel-device-id');
+  if (!deviceId) {
+    deviceId = 'device-' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+    localStorage.setItem('earth-travel-device-id', deviceId);
   }
-}
+  return deviceId;
+};
 
 // Initial Default Visited Countries
 const INITIAL_VISITED_COUNTRIES: VisitedCountry[] = [
@@ -531,7 +527,7 @@ export default function EarthTravel() {
   const [portError, setPortError] = useState('');
 
   // Auth & Sync
-  const [user, setUser] = useState<User | null>(null);
+  const [deviceId, setDeviceId] = useState<string>('');
   const [syncStatus, setSyncStatus] = useState<'connecting' | 'synced' | 'offline'>('connecting');
 
   // Visited Countries
@@ -559,34 +555,63 @@ export default function EarthTravel() {
     setMounted(true);
   }, []);
 
-  // Firebase Auth
+  // Device ID initialization
   useEffect(() => {
-    if (!auth || !mounted) {
-      if (mounted) setSyncStatus('offline');
-      return;
+    if (!mounted) return;
+    const id = getDeviceId();
+    setDeviceId(id);
+    if (!supabase) {
+      setSyncStatus('offline');
     }
-    signInAnonymously(auth)
-      .then((cred) => setUser(cred.user))
-      .catch(() => setSyncStatus('offline'));
   }, [mounted]);
 
-  // Cloud Sync
+  // Cloud Sync with Supabase
   useEffect(() => {
-    if (!user || !db) return;
-    const appId = process.env.NEXT_PUBLIC_APP_ID || 'earth-travel';
-    const countriesCol = collection(db, 'artifacts', appId, 'users', user.uid, 'visitedCountries');
+    if (!deviceId || !supabase) return;
 
-    const unsubscribe = onSnapshot(countriesCol, (snapshot) => {
-      const cloudCountries: VisitedCountry[] = [];
-      snapshot.forEach((docSnap) => cloudCountries.push(docSnap.data() as VisitedCountry));
-      if (cloudCountries.length > 0) {
-        setVisitedCountries(cloudCountries);
+    const loadCountries = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('visited_countries')
+          .select('*')
+          .eq('device_id', deviceId);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          const countries: VisitedCountry[] = data.map((row) => ({
+            code: row.code,
+            ko: row.ko,
+            en: row.en,
+            flag: row.flag,
+            continent: row.continent,
+            lat: row.lat,
+            lng: row.lng,
+            year: row.year || undefined,
+            note: row.note || undefined,
+          }));
+          setVisitedCountries(countries);
+        }
+        setSyncStatus('synced');
+      } catch (err) {
+        console.error('Supabase load error', err);
+        setSyncStatus('offline');
       }
-      setSyncStatus('synced');
-    }, () => setSyncStatus('offline'));
+    };
 
-    return () => unsubscribe();
-  }, [user]);
+    loadCountries();
+
+    // Realtime subscription
+    const channel = supabase
+      .channel('visited_countries_changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'visited_countries', filter: `device_id=eq.${deviceId}` },
+        () => { loadCountries(); }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [deviceId]);
 
   // Filtered presets
   const filteredPresets = useMemo(() => {
@@ -856,14 +881,34 @@ export default function EarthTravel() {
       leafletMapRef.current.setView([country.lat, country.lng], 5, { animate: true });
     }
 
-    if (user && db) {
-      const appId = process.env.NEXT_PUBLIC_APP_ID || 'earth-travel';
-      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'visitedCountries', country.code);
+    if (deviceId && supabase) {
       try {
-        if (isAlready) await deleteDoc(docRef);
-        else await setDoc(docRef, newEntry);
+        if (isAlready) {
+          await supabase
+            .from('visited_countries')
+            .delete()
+            .eq('device_id', deviceId)
+            .eq('code', country.code);
+          setVisitedCountries((prev) => prev.filter((c) => c.code !== country.code));
+        } else {
+          await supabase
+            .from('visited_countries')
+            .upsert({
+              device_id: deviceId,
+              code: newEntry.code,
+              ko: newEntry.ko,
+              en: newEntry.en,
+              flag: newEntry.flag,
+              continent: newEntry.continent,
+              lat: newEntry.lat,
+              lng: newEntry.lng,
+              year: newEntry.year,
+              note: newEntry.note,
+            }, { onConflict: 'device_id,code' });
+          setVisitedCountries((prev) => [...prev, newEntry]);
+        }
       } catch (err) {
-        console.error('Cloud save failed', err);
+        console.error('Supabase save failed', err);
       }
     } else {
       if (isAlready) setVisitedCountries((prev) => prev.filter((c) => c.code !== country.code));
@@ -872,10 +917,17 @@ export default function EarthTravel() {
   };
 
   const handleRemoveVisitedCountry = async (code: string) => {
-    if (user && db) {
-      const appId = process.env.NEXT_PUBLIC_APP_ID || 'earth-travel';
-      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'visitedCountries', code);
-      try { await deleteDoc(docRef); } catch (err) { console.error(err); }
+    if (deviceId && supabase) {
+      try {
+        await supabase
+          .from('visited_countries')
+          .delete()
+          .eq('device_id', deviceId)
+          .eq('code', code);
+        setVisitedCountries((prev) => prev.filter((c) => c.code !== code));
+      } catch (err) {
+        console.error('Supabase delete failed', err);
+      }
     } else {
       setVisitedCountries((prev) => prev.filter((c) => c.code !== code));
     }
