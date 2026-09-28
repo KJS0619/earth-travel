@@ -795,18 +795,30 @@ export default function EarthTravel() {
   const fetchExchangeRates = useCallback(async () => {
     if (Object.keys(exchangeRates).length > 0) return;
     try {
-      const res = await fetch('https://api.frankfurter.app/latest?from=KRW');
+      // Frankfurter API: EUR 기준으로 주요 통화 환율 조회
+      const res = await fetch('https://api.frankfurter.app/latest?from=EUR&to=KRW,USD,JPY,GBP,CHF,AUD,CAD,CNY,HKD,SGD,THB,TWD,SEK,NOK,DKK,PLN,CZK,HUF,TRY,NZD,MXN,BRL,INR,IDR,MYR,PHP,VND,AED,ZAR');
       if (!res.ok) throw new Error('Exchange API error');
       const data = await res.json();
-      // Convert to "1 foreign = X KRW" format
-      const rates: ExchangeRates = {};
-      for (const [currency, rate] of Object.entries(data.rates)) {
-        rates[currency] = Math.round(1 / (rate as number));
+
+      // KRW 기준으로 변환: 1 외화 = X KRW
+      const krwPerEur = data.rates.KRW || 1500; // fallback
+      const rates: ExchangeRates = { KRW: 1, EUR: Math.round(krwPerEur) };
+
+      for (const [currency, eurRate] of Object.entries(data.rates)) {
+        if (currency === 'KRW') continue;
+        // 1 외화 = (KRW/EUR) / (외화/EUR) = KRW per 외화
+        rates[currency] = Math.round(krwPerEur / (eurRate as number));
       }
-      rates['KRW'] = 1;
+
       setExchangeRates(rates);
     } catch (err) {
       console.error('Exchange rate fetch error:', err);
+      // Fallback rates (approximate)
+      setExchangeRates({
+        KRW: 1, USD: 1350, EUR: 1500, JPY: 9, GBP: 1750,
+        CNY: 190, HKD: 175, SGD: 1020, THB: 40, TWD: 43,
+        AUD: 900, CAD: 1000, CHF: 1550
+      });
     }
   }, [exchangeRates]);
 
