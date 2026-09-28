@@ -55,19 +55,18 @@ interface LegDistance {
   distNM: number;
 }
 
-// Device ID for user identification (localStorage)
+// Device ID for user identification (고정값 사용)
+const FIXED_DEVICE_ID = 'device-e5bfoxfim6vmul3pkys';
+
 const getDeviceId = (): string => {
   if (typeof window === 'undefined') return '';
-  let deviceId = localStorage.getItem('earth-travel-device-id');
-  if (!deviceId) {
-    deviceId = 'device-' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-    try {
-      localStorage.setItem('earth-travel-device-id', deviceId);
-    } catch (e) {
-      console.error('localStorage setItem failed:', e);
-    }
+  // 항상 고정 device_id 사용
+  try {
+    localStorage.setItem('earth-travel-device-id', FIXED_DEVICE_ID);
+  } catch (e) {
+    console.error('localStorage setItem failed:', e);
   }
-  return deviceId;
+  return FIXED_DEVICE_ID;
 };
 
 // localStorage 저장/불러오기
@@ -90,14 +89,6 @@ const loadFromLocalStorage = (): VisitedCountry[] => {
   return [];
 };
 
-// Initial Default Visited Countries
-const INITIAL_VISITED_COUNTRIES: VisitedCountry[] = [
-  { code: 'KR', ko: '대한민국', en: 'South Korea', flag: '🇰🇷', continent: '아시아', lat: 36.5, lng: 127.8, year: '거주', note: '홈그라운드' },
-  { code: 'JP', ko: '일본', en: 'Japan', flag: '🇯🇵', continent: '아시아', lat: 35.6762, lng: 139.6503, year: '2023', note: '도쿄 & 오사카 미식 여행' },
-  { code: 'FR', ko: '프랑스', en: 'France', flag: '🇫🇷', continent: '유럽', lat: 46.2276, lng: 2.2137, year: '2024', note: '파리 & 니스 지중해 코스' },
-  { code: 'IT', ko: '이탈리아', en: 'Italy', flag: '🇮🇹', continent: '유럽', lat: 41.8719, lng: 12.5674, year: '2024', note: '로마 콜로세움 & 베네치아' },
-  { code: 'ES', ko: '스페인', en: 'Spain', flag: '🇪🇸', continent: '유럽', lat: 40.4637, lng: -3.7492, year: '2025', note: '바르셀로나 사그라다 파밀리아' }
-];
 
 // World Countries Database
 const WORLD_COUNTRIES: VisitedCountry[] = [
@@ -625,7 +616,7 @@ export default function EarthTravel() {
           return;
         }
 
-        // Supabase 데이터가 있으면 사용
+        // Supabase 데이터만 사용 (localStorage 자동 업로드 제거)
         if (data && data.length > 0) {
           const countries: VisitedCountry[] = data.map((row) => ({
             code: row.code,
@@ -640,25 +631,8 @@ export default function EarthTravel() {
           }));
           setVisitedCountries(countries);
           saveToLocalStorage(countries);
-        } else if (localData.length > 0) {
-          // Supabase가 비었지만 localStorage에 데이터가 있으면 Supabase에 업로드
-          console.log('Uploading localStorage data to Supabase...');
-          for (const country of localData) {
-            await supabase.from('visited_countries').upsert({
-              device_id: deviceId,
-              code: country.code,
-              ko: country.ko,
-              en: country.en,
-              flag: country.flag,
-              continent: country.continent,
-              lat: country.lat,
-              lng: country.lng,
-              year: country.year || null,
-              note: country.note || null,
-            });
-          }
-          setVisitedCountries(localData);
         }
+        // Supabase가 비어있으면 빈 상태 유지 (자동 업로드 하지 않음)
         setSyncStatus('synced');
         setIsDataLoaded(true);
       } catch (err) {
