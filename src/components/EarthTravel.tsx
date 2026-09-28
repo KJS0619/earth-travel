@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import TravelStickerModal from './TravelStickerModal';
 
 // Supabase initialization
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -536,6 +537,7 @@ export default function EarthTravel() {
   const [countryFilterContinent, setCountryFilterContinent] = useState('전체');
   const [newVisitYear, setNewVisitYear] = useState('2025');
   const [newVisitNote, setNewVisitNote] = useState('');
+  const [isStickerModalOpen, setIsStickerModalOpen] = useState(false);
 
   // Map
   const [mapTheme, setMapTheme] = useState<'dark' | 'satellite' | 'light'>('dark');
@@ -1156,7 +1158,17 @@ export default function EarthTravel() {
 
             {/* VISITED LIST */}
             <div className="space-y-2 pt-2 border-t border-slate-800">
-              <h3 className="text-xs font-bold text-amber-300 flex items-center gap-1.5"><IconFlag className="w-3.5 h-3.5" /><span>내가 깃발 세운 나라 ({visitedCountries.length})</span></h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-amber-300 flex items-center gap-1.5"><IconFlag className="w-3.5 h-3.5" /><span>내가 깃발 세운 나라 ({visitedCountries.length})</span></h3>
+                {visitedCountries.length > 0 && (
+                  <button
+                    onClick={() => setIsStickerModalOpen(true)}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-gradient-to-r from-amber-500/20 to-rose-500/20 text-amber-300 rounded-lg border border-amber-500/30 hover:border-amber-400 transition"
+                  >
+                    🖨️ 스티커 출력
+                  </button>
+                )}
+              </div>
               {visitedCountries.length === 0 ? (
                 <div className="text-center py-6 text-slate-500 text-xs bg-slate-900/50 rounded-xl border border-dashed border-slate-800">아직 깃발을 꽂은 나라가 없습니다.</div>
               ) : (
@@ -1313,6 +1325,13 @@ export default function EarthTravel() {
         {/* FOOTER */}
         <div className="p-2.5 border-t border-slate-800 text-center text-[10px] text-slate-500 bg-slate-950/80">크루즈 & 가본 나라 깃발 여권 트래커</div>
       </div>
+
+      {/* Travel Sticker Modal */}
+      <TravelStickerModal
+        isOpen={isStickerModalOpen}
+        onClose={() => setIsStickerModalOpen(false)}
+        visitedCountries={visitedCountries}
+      />
     </div>
   );
 }
