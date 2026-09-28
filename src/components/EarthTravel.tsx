@@ -55,6 +55,46 @@ interface LegDistance {
   distNM: number;
 }
 
+// Weather & Exchange Rate Types
+interface WeatherData {
+  temperature: number;
+  windspeed: number;
+  weathercode: number;
+  emoji: string;
+}
+
+interface ExchangeRates {
+  [currency: string]: number;
+}
+
+// Country code to currency mapping
+const COUNTRY_CURRENCY: Record<string, string> = {
+  KR: 'KRW', JP: 'JPY', US: 'USD', CA: 'CAD', MX: 'MXN',
+  GB: 'GBP', FR: 'EUR', DE: 'EUR', IT: 'EUR', ES: 'EUR',
+  NL: 'EUR', BE: 'EUR', AT: 'EUR', IE: 'EUR', PT: 'EUR',
+  GR: 'EUR', FI: 'EUR', HR: 'EUR', CH: 'CHF', NO: 'NOK',
+  SE: 'SEK', DK: 'DKK', PL: 'PLN', CZ: 'CZK', HU: 'HUF',
+  TR: 'TRY', AU: 'AUD', NZ: 'NZD', CN: 'CNY', HK: 'HKD',
+  TW: 'TWD', SG: 'SGD', TH: 'THB', VN: 'VND', PH: 'PHP',
+  MY: 'MYR', ID: 'IDR', IN: 'INR', AE: 'AED', EG: 'EGP',
+  ZA: 'ZAR', BR: 'BRL', AR: 'ARS', CL: 'CLP', PE: 'PEN',
+  IS: 'ISK', MN: 'MNT', MA: 'MAD', GU: 'USD', MP: 'USD',
+};
+
+// Weather code to emoji mapping (WMO codes)
+const getWeatherEmoji = (code: number): string => {
+  if (code === 0) return '☀️'; // Clear sky
+  if (code <= 3) return '⛅'; // Partly cloudy
+  if (code <= 48) return '☁️'; // Foggy/Cloudy
+  if (code <= 57) return '🌧️'; // Drizzle
+  if (code <= 67) return '🌧️'; // Rain
+  if (code <= 77) return '❄️'; // Snow
+  if (code <= 82) return '🌧️'; // Rain showers
+  if (code <= 86) return '❄️'; // Snow showers
+  if (code >= 95) return '⛈️'; // Thunderstorm
+  return '🌤️';
+};
+
 // Device ID for user identification (고정값 사용)
 const FIXED_DEVICE_ID = 'device-e5bfoxfim6vmul3pkys';
 
@@ -555,6 +595,11 @@ export default function EarthTravel() {
   const [newVisitNote, setNewVisitNote] = useState('');
   const [isStickerModalOpen, setIsStickerModalOpen] = useState(false);
 
+  // Weather & Exchange Rate Cache
+  const [weatherCache, setWeatherCache] = useState<Record<string, WeatherData>>({});
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({});
+  const [isLoadingWeather, setIsLoadingWeather] = useState<Record<string, boolean>>({});
+
   // Map
   const [mapTheme, setMapTheme] = useState<'dark' | 'satellite' | 'light' | 'korean'>('dark');
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -717,6 +762,72 @@ export default function EarthTravel() {
     });
     return { count, worldPercent, continentCounts };
   }, [visitedCountries]);
+
+  // Fetch weather data with caching
+  const fetchWeather = useCallback(async (lat: number, lng: number, cacheKey: string) => {
+    if (weatherCache[cacheKey] || isLoadingWeather[cacheKey]) return;
+
+    setIsLoadingWeather(prev => ({ ...prev, [cacheKey]: true }));
+    try {
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true`
+      );
+      if (!res.ok) throw new Error('Weather API error');
+      const data = await res.json();
+      const weather = data.current_weather;
+      setWeatherCache(prev => ({
+        ...prev,
+        [cacheKey]: {
+          temperature: Math.round(weather.temperature),
+          windspeed: Math.round(weather.windspeed),
+          weathercode: weather.weathercode,
+          emoji: getWeatherEmoji(weather.weathercode),
+        },
+      }));
+    } catch (err) {
+      console.error('Weather fetch error:', err);
+    } finally {
+      setIsLoadingWeather(prev => ({ ...prev, [cacheKey]: false }));
+    }
+  }, [weatherCache, isLoadingWeather]);
+
+  // Fetch exchange rates (cached globally)
+  const fetchExchangeRates = useCallback(async () => {
+    if (Object.keys(exchangeRates).length > 0) return;
+    try {
+      const res = await fetch('https://api.frankfurter.app/latest?from=KRW');
+      if (!res.ok) throw new Error('Exchange API error');
+      const data = await res.json();
+      // Convert to "1 foreign = X KRW" format
+      const rates: ExchangeRates = {};
+      for (const [currency, rate] of Object.entries(data.rates)) {
+        rates[currency] = Math.round(1 / (rate as number));
+      }
+      rates['KRW'] = 1;
+      setExchangeRates(rates);
+    } catch (err) {
+      console.error('Exchange rate fetch error:', err);
+    }
+  }, [exchangeRates]);
+
+  // Load exchange rates on mount
+  useEffect(() => {
+    if (mounted) {
+      fetchExchangeRates();
+    }
+  }, [mounted, fetchExchangeRates]);
+
+  // Get exchange rate display for a country
+  const getExchangeDisplay = useCallback((countryCode: string): string => {
+    const currency = COUNTRY_CURRENCY[countryCode];
+    if (!currency || currency === 'KRW') return '';
+    const rate = exchangeRates[currency];
+    if (!rate) return '';
+    if (currency === 'JPY' || currency === 'VND' || currency === 'IDR') {
+      return `100${currency}≈${(rate * 100).toLocaleString()}원`;
+    }
+    return `1${currency}≈${rate.toLocaleString()}원`;
+  }, [exchangeRates]);
 
   const filteredSearchCountries = useMemo(() => {
     const q = countrySearchQuery.trim().toLowerCase();
@@ -1229,22 +1340,48 @@ export default function EarthTravel() {
                 <div className="text-center py-6 text-slate-500 text-xs bg-slate-900/50 rounded-xl border border-dashed border-slate-800">아직 깃발을 꽂은 나라가 없습니다.</div>
               ) : (
                 <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                  {visitedCountries.map((c) => (
-                    <div key={c.code} onClick={() => leafletMapRef.current?.setView([c.lat, c.lng], 6, { animate: true })} className="p-2 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-amber-500/50 transition flex items-center justify-between cursor-pointer group">
-                      <div className="flex items-center space-x-2.5">
-                        <span className="text-xl">{c.flag}</span>
-                        <div>
-                          <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                            <span className="px-1 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-500/50 font-mono text-[9px]">{c.code}</span>
-                            <span>{c.ko}</span>
-                            {c.year && <span className="text-[10px] text-amber-400 font-mono font-medium">({c.year})</span>}
+                  {visitedCountries.map((c) => {
+                    const weather = weatherCache[c.code];
+                    const exchange = getExchangeDisplay(c.code);
+                    return (
+                      <div
+                        key={c.code}
+                        onClick={() => leafletMapRef.current?.setView([c.lat, c.lng], 6, { animate: true })}
+                        onMouseEnter={() => fetchWeather(c.lat, c.lng, c.code)}
+                        className="p-2 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-amber-500/50 transition cursor-pointer group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2.5">
+                            <span className="text-xl">{c.flag}</span>
+                            <div>
+                              <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                                <span className="px-1 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-500/50 font-mono text-[9px]">{c.code}</span>
+                                <span>{c.ko}</span>
+                                {c.year && <span className="text-[10px] text-amber-400 font-mono font-medium">({c.year})</span>}
+                              </div>
+                              {c.note && <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[180px]">"{c.note}"</div>}
+                            </div>
                           </div>
-                          {c.note && <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[240px]">"{c.note}"</div>}
+                          <button onClick={(e) => { e.stopPropagation(); handleRemoveVisitedCountry(c.code); }} className="p-1 rounded text-rose-400 hover:bg-rose-950/40 opacity-70 group-hover:opacity-100 transition"><IconTrash className="w-3.5 h-3.5" /></button>
+                        </div>
+                        {/* Weather & Exchange Mini Widget */}
+                        <div className="flex items-center gap-2 mt-1.5 ml-8">
+                          {weather ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-950/60 text-sky-300 border border-sky-500/30">
+                              {weather.emoji} {weather.temperature}°C
+                            </span>
+                          ) : isLoadingWeather[c.code] ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">⏳</span>
+                          ) : null}
+                          {exchange && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-500/30">
+                              💱 {exchange}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <button onClick={(e) => { e.stopPropagation(); handleRemoveVisitedCountry(c.code); }} className="p-1 rounded text-rose-400 hover:bg-rose-950/40 opacity-70 group-hover:opacity-100 transition"><IconTrash className="w-3.5 h-3.5" /></button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1335,16 +1472,33 @@ export default function EarthTravel() {
                   {waypoints.map((port, idx) => {
                     const status = getPortStatus(idx, waypoints.length, progress);
                     const countryInfo = getCountryInfo(port.country);
+                    const portWeatherKey = `port-${port.id}`;
+                    const portWeather = weatherCache[portWeatherKey];
                     return (
-                      <div key={port.id} className={`flex items-center justify-between p-2 rounded-xl border text-xs transition ${status === 'docked' ? 'bg-amber-950/40 border-amber-500/80 text-white shadow-md' : status === 'visited' ? 'bg-emerald-950/30 border-emerald-600/60 text-slate-200' : 'bg-slate-900/60 border-slate-800 text-slate-400'}`}>
-                        <div className="flex items-center space-x-2">
-                          <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] border ${status === 'docked' ? 'bg-amber-500 text-slate-950 border-amber-300 animate-pulse' : status === 'visited' ? 'bg-emerald-500 text-slate-950 border-emerald-300' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>{status === 'visited' ? '✓' : idx + 1}</div>
-                          <div className="font-medium flex items-center gap-1.5 flex-wrap"><span className="px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 font-mono text-[10px] font-bold">[{countryInfo.code}]</span><span>{countryInfo.flag}</span><span>{port.name}</span></div>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <button onClick={() => handleMovePort(idx, idx - 1)} disabled={idx === 0} className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300">▲</button>
-                          <button onClick={() => handleMovePort(idx, idx + 1)} disabled={idx === waypoints.length - 1} className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300">▼</button>
-                          <button onClick={() => handleRemovePort(idx)} className="p-1 rounded text-rose-400 hover:bg-rose-950/40 transition"><IconTrash className="w-3.5 h-3.5" /></button>
+                      <div
+                        key={port.id}
+                        onMouseEnter={() => fetchWeather(port.lat, port.lng, portWeatherKey)}
+                        className={`p-2 rounded-xl border text-xs transition ${status === 'docked' ? 'bg-amber-950/40 border-amber-500/80 text-white shadow-md' : status === 'visited' ? 'bg-emerald-950/30 border-emerald-600/60 text-slate-200' : 'bg-slate-900/60 border-slate-800 text-slate-400'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] border ${status === 'docked' ? 'bg-amber-500 text-slate-950 border-amber-300 animate-pulse' : status === 'visited' ? 'bg-emerald-500 text-slate-950 border-emerald-300' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>{status === 'visited' ? '✓' : idx + 1}</div>
+                            <div className="font-medium flex items-center gap-1.5 flex-wrap">
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 font-mono text-[10px] font-bold">[{countryInfo.code}]</span>
+                              <span>{countryInfo.flag}</span>
+                              <span>{port.name}</span>
+                              {portWeather && (
+                                <span className="text-[9px] px-1 py-0.5 rounded bg-sky-950/60 text-sky-300 border border-sky-500/30">
+                                  {portWeather.emoji}{portWeather.temperature}°
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-1">
+                            <button onClick={() => handleMovePort(idx, idx - 1)} disabled={idx === 0} className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300">▲</button>
+                            <button onClick={() => handleMovePort(idx, idx + 1)} disabled={idx === waypoints.length - 1} className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300">▼</button>
+                            <button onClick={() => handleRemovePort(idx)} className="p-1 rounded text-rose-400 hover:bg-rose-950/40 transition"><IconTrash className="w-3.5 h-3.5" /></button>
+                          </div>
                         </div>
                       </div>
                     );
