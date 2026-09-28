@@ -5,6 +5,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import TravelStickerModal from './TravelStickerModal';
+import TravelPassportModal from './TravelPassportModal';
 
 // Supabase initialization
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -594,6 +595,7 @@ export default function EarthTravel() {
   const [newVisitYear, setNewVisitYear] = useState('2025');
   const [newVisitNote, setNewVisitNote] = useState('');
   const [isStickerModalOpen, setIsStickerModalOpen] = useState(false);
+  const [isPassportModalOpen, setIsPassportModalOpen] = useState(false);
 
   // Weather & Exchange Rate Cache
   const [weatherCache, setWeatherCache] = useState<Record<string, WeatherData>>({});
@@ -1340,12 +1342,20 @@ export default function EarthTravel() {
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold text-amber-300 flex items-center gap-1.5"><IconFlag className="w-3.5 h-3.5" /><span>내가 깃발 세운 나라 ({visitedCountries.length})</span></h3>
                 {visitedCountries.length > 0 && (
-                  <button
-                    onClick={() => setIsStickerModalOpen(true)}
-                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-gradient-to-r from-amber-500/20 to-rose-500/20 text-amber-300 rounded-lg border border-amber-500/30 hover:border-amber-400 transition"
-                  >
-                    🖨️ 스티커 출력
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setIsPassportModalOpen(true)}
+                      className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 rounded-lg border border-cyan-500/30 hover:border-cyan-400 transition"
+                    >
+                      📸 SNS 카드
+                    </button>
+                    <button
+                      onClick={() => setIsStickerModalOpen(true)}
+                      className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-gradient-to-r from-amber-500/20 to-rose-500/20 text-amber-300 rounded-lg border border-amber-500/30 hover:border-amber-400 transition"
+                    >
+                      🖨️ 스티커
+                    </button>
+                  </div>
                 )}
               </div>
               {visitedCountries.length === 0 ? (
@@ -1552,6 +1562,13 @@ export default function EarthTravel() {
       <TravelStickerModal
         isOpen={isStickerModalOpen}
         onClose={() => setIsStickerModalOpen(false)}
+        visitedCountries={visitedCountries}
+      />
+
+      {/* Travel Passport Modal */}
+      <TravelPassportModal
+        isOpen={isPassportModalOpen}
+        onClose={() => setIsPassportModalOpen(false)}
         visitedCountries={visitedCountries}
       />
     </div>
