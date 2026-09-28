@@ -56,75 +56,89 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
 
   return (
     <>
-      {/* Print Styles - 인라인 style 태그로 확실하게 적용 */}
+      {/* Print Styles */}
       <style>{`
         @media print {
-          /* 모든 요소 숨기기 */
-          body * {
-            visibility: hidden !important;
+          /* 전체 페이지 초기화 */
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+            background: white !important;
           }
 
-          /* 인쇄 영역만 표시 */
-          #sticker-print-container,
+          /* 모든 요소 숨기기 */
+          body > *:not(#sticker-print-container) {
+            display: none !important;
+          }
+
+          /* 인쇄 영역 표시 */
+          #sticker-print-container {
+            display: block !important;
+            visibility: visible !important;
+            position: static !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
           #sticker-print-container * {
             visibility: visible !important;
-          }
-
-          #sticker-print-container {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 200mm !important;
-            background: white !important;
-            z-index: 999999 !important;
-            display: block !important;
           }
 
           .sticker-print-grid {
             display: flex !important;
             flex-wrap: wrap !important;
-            gap: 3mm !important;
-            padding: 3mm !important;
+            gap: 4mm !important;
+            padding: 2mm !important;
             background: white !important;
-            justify-content: flex-start !important;
+            justify-content: center !important;
+            align-content: flex-start !important;
           }
 
           .sticker-print-item {
-            width: 95mm !important;
-            min-width: 95mm !important;
-            max-width: 95mm !important;
-            height: 88mm !important;
-            min-height: 88mm !important;
-            max-height: 88mm !important;
+            width: 94mm !important;
+            height: 86mm !important;
+            flex: 0 0 94mm !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
-            flex-shrink: 0 !important;
+            margin-bottom: 2mm !important;
           }
 
-          /* 모달 숨기기 */
+          /* 모달 완전히 숨기기 */
           .modal-backdrop,
           .modal-container {
             display: none !important;
             visibility: hidden !important;
+            position: absolute !important;
+            left: -9999px !important;
           }
 
           @page {
             size: A4 portrait;
-            margin: 8mm;
+            margin: 5mm;
           }
         }
 
         /* 화면에서는 인쇄 영역 숨기기 */
         @media screen {
           #sticker-print-container {
-            position: absolute !important;
+            position: fixed !important;
             left: -9999px !important;
-            top: -9999px !important;
+            top: 0 !important;
             width: 210mm !important;
+            height: 0 !important;
+            overflow: hidden !important;
             visibility: hidden !important;
+            pointer-events: none !important;
           }
         }
       `}</style>
@@ -198,10 +212,10 @@ export default function TravelStickerModal({ isOpen, onClose, visitedCountries }
 
 function StickerCard({ country, index, forPrint = false }: { country: VisitedCountry; index: number; forPrint?: boolean }) {
   const containerStyle: React.CSSProperties = forPrint ? {
-    width: '95mm',
-    height: '88mm',
-    padding: '10px',
-    borderRadius: '14px',
+    width: '94mm',
+    height: '86mm',
+    padding: '8px',
+    borderRadius: '12px',
     border: '3px dashed #d97706',
     background: 'linear-gradient(135deg, #fffbeb 0%, #fed7aa 100%)',
     display: 'flex',
