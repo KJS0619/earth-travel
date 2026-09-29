@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { toPng } from 'html-to-image';
+import { getFlagUrl } from './FlagIcon';
 
 interface VisitedCountry {
   code: string;
@@ -194,7 +195,14 @@ export default function TravelPassportModal({ isOpen, onClose, visitedCountries 
                       key={country.code}
                       className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-700/60 rounded border border-slate-600/50"
                     >
-                      <span className="text-sm">{country.flag}</span>
+                      <img
+                        src={getFlagUrl(country.code, 20)}
+                        alt={country.code}
+                        crossOrigin="anonymous"
+                        style={{ width: 16, height: 11, borderRadius: 2, objectFit: 'cover' }}
+                        onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }}
+                      />
+                      <span className="text-sm hidden">{country.flag}</span>
                       <span className="text-[9px] text-slate-300 font-medium">{country.ko}</span>
                     </div>
                   ))}

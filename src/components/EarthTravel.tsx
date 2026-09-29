@@ -6,6 +6,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import TravelStickerModal from './TravelStickerModal';
 import TravelPassportModal from './TravelPassportModal';
+import FlagIcon, { getFlagUrl } from './FlagIcon';
 
 // Supabase initialization
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -593,7 +594,8 @@ function createPortIcon(port: Waypoint, index: number, status: string, totalPort
   const isStart = index === 0;
   const isEnd = index === totalPorts - 1;
   const countryInfo = getCountryInfo(port.country);
-  const flag = countryInfo.flag;
+  const flagUrl = `https://flagcdn.com/w40/${countryInfo.code.toLowerCase()}.png`;
+  const flagImg = `<img src="${flagUrl}" alt="${countryInfo.code}" style="width:18px; height:12px; border-radius:2px; border:1px solid rgba(255,255,255,0.3); object-fit:cover;" onerror="this.outerHTML='${countryInfo.flag}'"/>`;
 
   let bgGradient = 'linear-gradient(135deg, #475569, #334155)';
   let borderColor = '#94a3b8';
@@ -626,7 +628,7 @@ function createPortIcon(port: Waypoint, index: number, status: string, totalPort
   }
 
   return L.divIcon({
-    html: `<div style="position:relative; display:flex; flex-direction:column; align-items:center;"><div style="position:relative; width:28px; height:28px; display:flex; align-items:center; justify-content:center;">${pingRing}<div style="position:relative; z-index:2; width:26px; height:26px; border-radius:50%; background:${bgGradient}; border:2.5px solid ${borderColor}; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 14px rgba(0,0,0,0.65); color:#ffffff; font-weight:800; font-size:11px;">${badgeText}</div></div><div style="background:rgba(15,23,42,0.96); color:#f8fafc; font-size:10px; font-weight:600; padding:2px 7px; border-radius:6px; border:1px solid ${status === 'docked' ? '#fbbf24' : isStart ? '#10b981' : isEnd ? '#c084fc' : status === 'visited' ? '#10b981' : 'rgba(255,255,255,0.22)'}; white-space:nowrap; margin-top:4px; box-shadow:0 3px 10px rgba(0,0,0,0.65); display:flex; align-items:center; gap:4px;">${roleBadge}<span style="background:#064e3b; color:#6ee7b7; font-family:monospace; font-weight:700; font-size:9px; padding:1px 4px; border-radius:3px; border:1px solid #10b981;">[${countryInfo.code}] ${countryInfo.ko}</span><span style="font-size:11px; line-height:1;">${flag}</span><span style="font-weight:700;">${port.name.split(' ')[0]}</span>${statusBadge}</div></div>`,
+    html: `<div style="position:relative; display:flex; flex-direction:column; align-items:center;"><div style="position:relative; width:28px; height:28px; display:flex; align-items:center; justify-content:center;">${pingRing}<div style="position:relative; z-index:2; width:26px; height:26px; border-radius:50%; background:${bgGradient}; border:2.5px solid ${borderColor}; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 14px rgba(0,0,0,0.65); color:#ffffff; font-weight:800; font-size:11px;">${badgeText}</div></div><div style="background:rgba(15,23,42,0.96); color:#f8fafc; font-size:10px; font-weight:600; padding:2px 7px; border-radius:6px; border:1px solid ${status === 'docked' ? '#fbbf24' : isStart ? '#10b981' : isEnd ? '#c084fc' : status === 'visited' ? '#10b981' : 'rgba(255,255,255,0.22)'}; white-space:nowrap; margin-top:4px; box-shadow:0 3px 10px rgba(0,0,0,0.65); display:flex; align-items:center; gap:4px;">${roleBadge}<span style="background:#064e3b; color:#6ee7b7; font-family:monospace; font-weight:700; font-size:9px; padding:1px 4px; border-radius:3px; border:1px solid #10b981;">[${countryInfo.code}] ${countryInfo.ko}</span>${flagImg}<span style="font-weight:700;">${port.name.split(' ')[0]}</span>${statusBadge}</div></div>`,
     className: 'cruise-port-dynamic-marker',
     iconSize: [42, 54],
     iconAnchor: [21, 14]
@@ -634,8 +636,10 @@ function createPortIcon(port: Waypoint, index: number, status: string, totalPort
 }
 
 function createVisitedFlagIcon(country: VisitedCountry): L.DivIcon {
+  const flagUrl = `https://flagcdn.com/w40/${country.code.toLowerCase()}.png`;
+  const flagImg = `<img src="${flagUrl}" alt="${country.code}" style="width:24px; height:16px; border-radius:3px; border:1px solid rgba(255,255,255,0.4); object-fit:cover; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));" onerror="this.outerHTML='<span style=\\'font-size:16px;\\'>${country.flag}</span>'"/>`;
   return L.divIcon({
-    html: `<div style="position:relative; display:flex; flex-direction:column; align-items:center; cursor:pointer; filter:drop-shadow(0 4px 12px rgba(0,0,0,0.7)); transition:transform 0.2s ease;"><span style="position:absolute; bottom:0px; width:16px; height:16px; border-radius:50%; background:#ef4444; opacity:0.6; animation:ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></span><div style="display:flex; align-items:flex-end;"><div style="width:3px; height:34px; background:linear-gradient(to bottom, #f59e0b, #d97706, #78350f); border-radius:2px 2px 0 0; box-shadow:1px 0 2px rgba(0,0,0,0.5);"></div><div style="margin-left:-2px; margin-bottom:12px; background:linear-gradient(135deg, #1e293b, #0f172a); border:1.5px solid #f59e0b; border-radius:6px; padding:2px 6px; display:flex; align-items:center; gap:5px; box-shadow:0 3px 10px rgba(0,0,0,0.6); transform-origin:bottom left;"><span style="font-size:16px; line-height:1; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));">${country.flag}</span><div style="display:flex; flex-direction:column; line-height:1.1;"><span style="color:#ffffff; font-weight:800; font-size:11px; white-space:nowrap;">${country.ko}</span><span style="color:#fbbf24; font-family:monospace; font-size:8px; font-weight:700;">[${country.code}] ${country.year ? `• ${country.year}` : ''}</span></div></div></div><div style="width:10px; height:6px; background:#ef4444; border-radius:50%; border:1.5px solid #ffffff; margin-top:-2px; box-shadow:0 2px 4px rgba(0,0,0,0.8);"></div></div>`,
+    html: `<div style="position:relative; display:flex; flex-direction:column; align-items:center; cursor:pointer; filter:drop-shadow(0 4px 12px rgba(0,0,0,0.7)); transition:transform 0.2s ease;"><span style="position:absolute; bottom:0px; width:16px; height:16px; border-radius:50%; background:#ef4444; opacity:0.6; animation:ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></span><div style="display:flex; align-items:flex-end;"><div style="width:3px; height:34px; background:linear-gradient(to bottom, #f59e0b, #d97706, #78350f); border-radius:2px 2px 0 0; box-shadow:1px 0 2px rgba(0,0,0,0.5);"></div><div style="margin-left:-2px; margin-bottom:12px; background:linear-gradient(135deg, #1e293b, #0f172a); border:1.5px solid #f59e0b; border-radius:6px; padding:2px 6px; display:flex; align-items:center; gap:5px; box-shadow:0 3px 10px rgba(0,0,0,0.6); transform-origin:bottom left;">${flagImg}<div style="display:flex; flex-direction:column; line-height:1.1;"><span style="color:#ffffff; font-weight:800; font-size:11px; white-space:nowrap;">${country.ko}</span><span style="color:#fbbf24; font-family:monospace; font-size:8px; font-weight:700;">[${country.code}] ${country.year ? `• ${country.year}` : ''}</span></div></div></div><div style="width:10px; height:6px; background:#ef4444; border-radius:50%; border:1.5px solid #ffffff; margin-top:-2px; box-shadow:0 2px 4px rgba(0,0,0,0.8);"></div></div>`,
     className: 'visited-country-flag-icon',
     iconSize: [64, 48],
     iconAnchor: [3, 44]
@@ -1364,16 +1368,18 @@ export default function EarthTravel() {
                   {activeLegInfo.dockedPort ? (
                     <span className="text-amber-300 font-bold flex items-center gap-1.5 flex-wrap">
                       <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 font-mono text-[11px]">[{getCountryInfo(activeLegInfo.dockedPort.country).code}] {getCountryInfo(activeLegInfo.dockedPort.country).ko}</span>
-                      <span>{getCountryInfo(activeLegInfo.dockedPort.country).flag}</span>
+                      <FlagIcon code={getCountryInfo(activeLegInfo.dockedPort.country).code} fallbackEmoji={getCountryInfo(activeLegInfo.dockedPort.country).flag} size="sm" />
                       <span>⚓ {activeLegInfo.dockedPort.name} 기항 중</span>
                     </span>
                   ) : (
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="px-1.5 py-0.5 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-500/40 font-mono text-[10px]">[{getCountryInfo(activeLegInfo.fromCountry).code}]</span>
-                      <span>{getCountryInfo(activeLegInfo.fromCountry).flag} {activeLegInfo.fromName.split(' ')[0]}</span>
+                      <FlagIcon code={getCountryInfo(activeLegInfo.fromCountry).code} fallbackEmoji={getCountryInfo(activeLegInfo.fromCountry).flag} size="xs" />
+                      <span>{activeLegInfo.fromName.split(' ')[0]}</span>
                       <span className="text-cyan-400">➔</span>
                       <span className="px-1.5 py-0.5 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-500/40 font-mono text-[10px]">[{getCountryInfo(activeLegInfo.toCountry).code}]</span>
-                      <span>{getCountryInfo(activeLegInfo.toCountry).flag} {activeLegInfo.toName.split(' ')[0]}</span>
+                      <FlagIcon code={getCountryInfo(activeLegInfo.toCountry).code} fallbackEmoji={getCountryInfo(activeLegInfo.toCountry).flag} size="xs" />
+                      <span>{activeLegInfo.toName.split(' ')[0]}</span>
                       <span className="ml-1.5 text-cyan-300 font-mono text-xs">({activeLegInfo.legPercent}%)</span>
                     </div>
                   )}
@@ -1495,8 +1501,8 @@ export default function EarthTravel() {
                   const isVisited = visitedCountries.some((v) => v.code === c.code);
                   return (
                     <button key={c.code} onClick={() => handleToggleVisitedCountry(c)} className={`p-2 rounded-xl border text-left flex items-center justify-between transition cursor-pointer ${isVisited ? 'bg-amber-950/40 border-amber-500/80 text-white shadow-sm' : 'bg-slate-800/40 border-slate-700/50 text-slate-300 hover:bg-slate-800'}`}>
-                      <div className="flex items-center space-x-2 truncate">
-                        <span className="text-lg">{c.flag}</span>
+                      <div className="flex items-center space-x-2.5 truncate">
+                        <FlagIcon code={c.code} fallbackEmoji={c.flag} size="md" />
                         <div className="truncate"><div className="text-xs font-semibold truncate">{c.ko}</div><div className="text-[10px] text-slate-400 font-mono">[{c.code}]</div></div>
                       </div>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${isVisited ? 'bg-amber-500 text-slate-950' : 'bg-slate-700 text-slate-400'}`}>{isVisited ? '🚩' : '+'}</span>
@@ -1543,7 +1549,7 @@ export default function EarthTravel() {
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2.5">
-                            <span className="text-xl">{c.flag}</span>
+                            <FlagIcon code={c.code} fallbackEmoji={c.flag} size="lg" />
                             <div>
                               <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
                                 <span className="px-1 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-500/50 font-mono text-[9px]">{c.code}</span>
@@ -1647,7 +1653,7 @@ export default function EarthTravel() {
                           return (
                             <tr key={port.id} className={`transition ${status === 'docked' ? 'bg-amber-950/30 text-amber-200 font-bold' : status === 'visited' ? 'bg-emerald-950/20 text-slate-200' : 'bg-slate-900/30 text-slate-300 hover:bg-slate-800/50'}`}>
                               <td className="py-2 px-2 text-center text-slate-400 text-[10px]">{idx + 1}</td>
-                              <td className="py-2 px-2"><span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 font-semibold text-[10px]"><span className="bg-emerald-500 text-slate-950 px-1 py-0.1 rounded text-[8px] font-bold">{countryInfo.code}</span>{countryInfo.ko} {countryInfo.flag}</span></td>
+                              <td className="py-2 px-2"><span className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 font-semibold text-[10px]"><FlagIcon code={countryInfo.code} fallbackEmoji={countryInfo.flag} size="xs" showBorder={false} /><span className="bg-emerald-500 text-slate-950 px-1 py-0.1 rounded text-[8px] font-bold">{countryInfo.code}</span>{countryInfo.ko}</span></td>
                               <td className="py-2 px-2 font-sans font-medium text-slate-200">{port.name}</td>
                               <td className="py-2 px-2 text-center">{status === 'docked' ? <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/50 font-bold animate-pulse">⚓</span> : status === 'visited' ? <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">✓</span> : <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">-</span>}</td>
                               <td className="py-2 px-2 text-center"><button onClick={() => handleRemovePort(idx)} className="p-1 rounded text-rose-400 hover:bg-rose-950/40 transition"><IconTrash className="w-3 h-3" /></button></td>
@@ -1675,8 +1681,8 @@ export default function EarthTravel() {
                           <div className="flex items-center space-x-2">
                             <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] border ${status === 'docked' ? 'bg-amber-500 text-slate-950 border-amber-300 animate-pulse' : status === 'visited' ? 'bg-emerald-500 text-slate-950 border-emerald-300' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>{status === 'visited' ? '✓' : idx + 1}</div>
                             <div className="font-medium flex items-center gap-1.5 flex-wrap">
+                              <FlagIcon code={countryInfo.code} fallbackEmoji={countryInfo.flag} size="sm" showBorder={false} />
                               <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 font-mono text-[10px] font-bold">[{countryInfo.code}]</span>
-                              <span>{countryInfo.flag}</span>
                               <span>{port.name}</span>
                               {portWeather && (
                                 <span className="text-[9px] px-1 py-0.5 rounded bg-sky-950/60 text-sky-300 border border-sky-500/30">

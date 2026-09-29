@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { getFlagUrl } from './FlagIcon';
 
 // body에 직접 렌더링하기 위한 Portal 컴포넌트
 function PrintPortal({ children }: { children: React.ReactNode }) {
@@ -287,8 +288,20 @@ function StickerCard({ country, index, forPrint = false }: { country: VisitedCou
       </div>
 
       {/* Flag */}
-      <div style={{ fontSize: forPrint ? '48px' : '56px', marginBottom: '8px' }}>
-        {country.flag}
+      <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <img
+          src={getFlagUrl(country.code, forPrint ? 80 : 160)}
+          alt={country.code}
+          style={{
+            width: forPrint ? 60 : 72,
+            height: forPrint ? 40 : 48,
+            borderRadius: 4,
+            border: '2px solid rgba(180, 83, 9, 0.4)',
+            objectFit: 'cover',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.15)',
+          }}
+          onError={(e) => { e.currentTarget.outerHTML = `<span style="font-size:${forPrint ? 48 : 56}px">${country.flag}</span>`; }}
+        />
       </div>
 
       {/* Country code */}
