@@ -6,7 +6,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import TravelStickerModal from './TravelStickerModal';
 import TravelPassportModal from './TravelPassportModal';
-import FlagIcon, { getFlagUrl } from './FlagIcon';
+import FlagIcon from './FlagIcon';
 
 // Supabase initialization
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -50,12 +50,721 @@ interface CruisePreset {
   waypoints: Waypoint[];
 }
 
-interface LegDistance {
-  from: Waypoint;
-  to: Waypoint;
-  distKm: number;
-  distNM: number;
+// My Trip Types
+type TransportMode = 'plane' | 'boat' | 'train' | 'bus' | 'car';
+
+// ========== Web Audio API Sound Engine ==========
+class SoundEngine {
+  private audioCtx: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
+  private activeNodes: AudioNode[] = [];
+  private activeOscillators: OscillatorNode[] = [];
+  private isMuted: boolean = false;
+
+  init(): boolean {
+    if (this.audioCtx) return true;
+    try {
+      this.audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      this.masterGain = this.audioCtx.createGain();
+      this.masterGain.connect(this.audioCtx.destination);
+      this.masterGain.gain.value = 0.3;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  resume(): void {
+    if (this.audioCtx?.state === 'suspended') {
+      this.audioCtx.resume();
+    }
+  }
+
+  setMuted(muted: boolean): void {
+    this.isMuted = muted;
+    if (this.masterGain) {
+      this.masterGain.gain.value = muted ? 0 : 0.3;
+    }
+  }
+
+  getMuted(): boolean {
+    return this.isMuted;
+  }
+
+  stopAll(): void {
+    this.activeOscillators.forEach(osc => {
+      try { osc.stop(); } catch {}
+    });
+    this.activeOscillators = [];
+    this.activeNodes = [];
+  }
+
+  // 비행기: 로우패스 필터를 거친 바람/순항음
+  playPlane(): () => void {
+    if (!this.audioCtx || !this.masterGain) return () => {};
+
+    const ctx = this.audioCtx;
+    const bufferSize = 2 * ctx.sampleRate;
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      output[i] = Math.random() * 2 - 1;
+    }
+
+    const whiteNoise = ctx.createBufferSource();
+    whiteNoise.buffer = noiseBuffer;
+    whiteNoise.loop = true;
+
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = 400;
+    lowpass.Q.value = 1;
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0.15;
+
+    whiteNoise.connect(lowpass);
+    lowpass.connect(gain);
+    gain.connect(this.masterGain);
+    whiteNoise.start();
+
+    this.activeNodes.push(whiteNoise, lowpass, gain);
+
+    return () => {
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      setTimeout(() => {
+        try { whiteNoise.stop(); } catch {}
+      }, 500);
+    };
+  }
+
+  // 기차: 철로 리듬 펄스가 있는 레일 마찰음
+  playTrain(): () => void {
+    if (!this.audioCtx || !this.masterGain) return () => {};
+
+    const ctx = this.audioCtx;
+    let running = true;
+
+    const playRhythm = () => {
+      if (!running) return;
+
+      const osc = ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = 80 + Math.random() * 20;
+
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 200;
+      filter.Q.value = 2;
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain!);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.2);
+
+      this.activeOscillators.push(osc);
+
+      setTimeout(() => {
+        if (running) playRhythm();
+      }, 280 + Math.random() * 40);
+    };
+
+    playRhythm();
+
+    return () => {
+      running = false;
+    };
+  }
+
+  // 배: 바다 물결 앰비언스 + 묵직한 뱃고동
+  playBoat(playHorn: boolean = false): () => void {
+    if (!this.audioCtx || !this.masterGain) return () => {};
+
+    const ctx = this.audioCtx;
+
+    // 물결 앰비언스 (필터된 노이즈)
+    const bufferSize = 2 * ctx.sampleRate;
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      output[i] = Math.random() * 2 - 1;
+    }
+
+    const waveNoise = ctx.createBufferSource();
+    waveNoise.buffer = noiseBuffer;
+    waveNoise.loop = true;
+
+    const bandpass = ctx.createBiquadFilter();
+    bandpass.type = 'bandpass';
+    bandpass.frequency.value = 300;
+    bandpass.Q.value = 0.5;
+
+    const waveGain = ctx.createGain();
+    waveGain.gain.value = 0.08;
+
+    // LFO로 물결 느낌
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.3;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 0.03;
+    lfo.connect(lfoGain);
+    lfoGain.connect(waveGain.gain);
+    lfo.start();
+
+    waveNoise.connect(bandpass);
+    bandpass.connect(waveGain);
+    waveGain.connect(this.masterGain);
+    waveNoise.start();
+
+    this.activeNodes.push(waveNoise, bandpass, waveGain, lfo, lfoGain);
+
+    // 뱃고동 (출발 시)
+    if (playHorn) {
+      setTimeout(() => {
+        const horn = ctx.createOscillator();
+        horn.type = 'sawtooth';
+        horn.frequency.value = 110;
+
+        const hornGain = ctx.createGain();
+        hornGain.gain.value = 0;
+        hornGain.gain.setValueAtTime(0, ctx.currentTime);
+        hornGain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.3);
+        hornGain.gain.setValueAtTime(0.15, ctx.currentTime + 1.5);
+        hornGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.5);
+
+        const hornFilter = ctx.createBiquadFilter();
+        hornFilter.type = 'lowpass';
+        hornFilter.frequency.value = 200;
+
+        horn.connect(hornFilter);
+        hornFilter.connect(hornGain);
+        hornGain.connect(this.masterGain!);
+        horn.start();
+        horn.stop(ctx.currentTime + 3);
+
+        this.activeOscillators.push(horn);
+      }, 100);
+    }
+
+    return () => {
+      waveGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      setTimeout(() => {
+        try {
+          waveNoise.stop();
+          lfo.stop();
+        } catch {}
+      }, 500);
+    };
+  }
+
+  // 자동차/버스: 엔진음
+  playCar(): () => void {
+    if (!this.audioCtx || !this.masterGain) return () => {};
+
+    const ctx = this.audioCtx;
+
+    const osc1 = ctx.createOscillator();
+    osc1.type = 'sawtooth';
+    osc1.frequency.value = 65;
+
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'square';
+    osc2.frequency.value = 130;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 300;
+    filter.Q.value = 2;
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0.06;
+
+    // 약간의 떨림 효과 (LFO)
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 8;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 5;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc1.frequency);
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc1.start();
+    osc2.start();
+    lfo.start();
+
+    this.activeOscillators.push(osc1, osc2, lfo);
+    this.activeNodes.push(filter, gain, lfoGain);
+
+    return () => {
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      setTimeout(() => {
+        try {
+          osc1.stop();
+          osc2.stop();
+          lfo.stop();
+        } catch {}
+      }, 300);
+    };
+  }
+
+  // 도착 차임벨: 맑은 2음 벨소리
+  playArrivalChime(): void {
+    if (!this.audioCtx || !this.masterGain || this.isMuted) return;
+
+    const ctx = this.audioCtx;
+    const notes = [523.25, 659.25]; // C5, E5
+
+    notes.forEach((freq, i) => {
+      setTimeout(() => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+
+        osc.connect(gain);
+        gain.connect(this.masterGain!);
+        osc.start();
+        osc.stop(ctx.currentTime + 1);
+      }, i * 200);
+    });
+  }
+
+  // 교통수단별 사운드 재생
+  playTransportSound(mode: TransportMode, isStart: boolean = false): () => void {
+    switch (mode) {
+      case 'plane':
+        return this.playPlane();
+      case 'train':
+        return this.playTrain();
+      case 'boat':
+        return this.playBoat(isStart);
+      case 'car':
+      case 'bus':
+        return this.playCar();
+      default:
+        return () => {};
+    }
+  }
+
+  cleanup(): void {
+    this.stopAll();
+    if (this.audioCtx && this.audioCtx.state !== 'closed') {
+      this.audioCtx.close().catch(() => {});
+    }
+    this.audioCtx = null;
+    this.masterGain = null;
+  }
 }
+
+// 싱글톤 인스턴스
+const soundEngine = new SoundEngine();
+// ================================================
+
+interface MyTripWaypoint {
+  id: string;
+  name: string;
+  countryCode: string;
+  lat: number;
+  lng: number;
+  order: number;
+  transportToNext?: TransportMode;
+}
+
+// My Trip Distance & Time Helpers
+const calculateHaversineDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+  const R = 6371; // 지구 반지름 (km)
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+const TRANSPORT_SPEEDS: Record<TransportMode, number> = {
+  plane: 800,   // km/h
+  train: 200,   // km/h
+  car: 80,      // km/h
+  bus: 80,      // km/h
+  boat: 35,     // km/h (크루즈)
+};
+
+const calculateTravelTime = (distanceKm: number, mode: TransportMode): number => {
+  const speed = TRANSPORT_SPEEDS[mode];
+  let hours = distanceKm / speed;
+  // 비행기는 이착륙 버퍼 1시간 추가
+  if (mode === 'plane') hours += 1;
+  return hours;
+};
+
+const formatTravelTime = (hours: number): string => {
+  if (hours < 1) {
+    const mins = Math.round(hours * 60);
+    return `약 ${mins}분`;
+  }
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  if (m === 0) return `약 ${h}시간`;
+  return `약 ${h}시간 ${m}분`;
+};
+
+interface MyTripLegInfo {
+  distanceKm: number;
+  travelTimeHours: number;
+  formattedDistance: string;
+  formattedTime: string;
+}
+
+// Saved Trip Type (Supabase)
+interface SavedTrip {
+  id: string;
+  device_id: string;
+  title: string;
+  waypoints: MyTripWaypoint[];
+  total_distance_km: number;
+  total_time_hours: number;
+  created_at: string;
+}
+
+// Preset Trip Types
+type PresetContinent = '아시아' | '유럽' | '아프리카' | '미주' | '도시코스';
+
+interface PresetWaypoint {
+  countryCode: string;
+  transportToNext?: TransportMode;
+  // 도시/랜드마크 코스용 추가 필드
+  cityName?: string;
+  lat?: number;
+  lng?: number;
+}
+
+interface TripPreset {
+  id: string;
+  continent: PresetContinent;
+  title: string;
+  description: string;
+  badge: string;
+  badgeColor: string;
+  waypoints: PresetWaypoint[];
+}
+
+// Nominatim Search Types
+interface NominatimResult {
+  place_id: number;
+  lat: string;
+  lon: string;
+  display_name: string;
+  name: string;
+  address?: {
+    country?: string;
+    country_code?: string;
+    city?: string;
+    town?: string;
+    village?: string;
+    state?: string;
+  };
+  type: string;
+  class: string;
+}
+
+// Preset Trip Data
+const TRIP_PRESETS: TripPreset[] = [
+  // 아시아
+  {
+    id: 'asia-1',
+    continent: '아시아',
+    title: '동남아 3국 힐링',
+    description: '한국 → 베트남 → 태국 → 싱가포르 → 한국',
+    badge: '초보자 추천',
+    badgeColor: 'emerald',
+    waypoints: [
+      { countryCode: 'KR', transportToNext: 'plane' },
+      { countryCode: 'VN', transportToNext: 'plane' },
+      { countryCode: 'TH', transportToNext: 'plane' },
+      { countryCode: 'SG', transportToNext: 'plane' },
+      { countryCode: 'KR' },
+    ],
+  },
+  {
+    id: 'asia-2',
+    continent: '아시아',
+    title: '일본 골든루트',
+    description: '한국 → 오사카 → 교토 → 도쿄 → 한국 (기차 일주)',
+    badge: '기차 낭만',
+    badgeColor: 'violet',
+    waypoints: [
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780, transportToNext: 'plane' },
+      { countryCode: 'JP', cityName: '오사카', lat: 34.6937, lng: 135.5023, transportToNext: 'train' },
+      { countryCode: 'JP', cityName: '교토', lat: 35.0116, lng: 135.7681, transportToNext: 'train' },
+      { countryCode: 'JP', cityName: '도쿄', lat: 35.6762, lng: 139.6503, transportToNext: 'plane' },
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780 },
+    ],
+  },
+  {
+    id: 'asia-3',
+    continent: '아시아',
+    title: '중앙아시아 실크로드',
+    description: '한국 → 중국 → 카자흐스탄 → 우즈베키스탄 → 한국',
+    badge: '역사 탐방',
+    badgeColor: 'amber',
+    waypoints: [
+      { countryCode: 'KR', transportToNext: 'plane' },
+      { countryCode: 'CN', transportToNext: 'plane' },
+      { countryCode: 'KZ', transportToNext: 'plane' },
+      { countryCode: 'UZ', transportToNext: 'plane' },
+      { countryCode: 'KR' },
+    ],
+  },
+  // 유럽
+  {
+    id: 'europe-1',
+    continent: '유럽',
+    title: '서유럽 핵심 기차 일주',
+    description: '한국 → 영국 → 프랑스 → 스위스 → 이탈리아 → 한국',
+    badge: '기차 낭만',
+    badgeColor: 'violet',
+    waypoints: [
+      { countryCode: 'KR', transportToNext: 'plane' },
+      { countryCode: 'GB', transportToNext: 'train' },
+      { countryCode: 'FR', transportToNext: 'train' },
+      { countryCode: 'CH', transportToNext: 'train' },
+      { countryCode: 'IT', transportToNext: 'plane' },
+      { countryCode: 'KR' },
+    ],
+  },
+  {
+    id: 'europe-2',
+    continent: '유럽',
+    title: '북유럽 오로라 투어',
+    description: '한국 → 핀란드 → 노르웨이 → 아이슬란드 → 한국',
+    badge: '자연 경관',
+    badgeColor: 'cyan',
+    waypoints: [
+      { countryCode: 'KR', transportToNext: 'plane' },
+      { countryCode: 'FI', transportToNext: 'plane' },
+      { countryCode: 'NO', transportToNext: 'plane' },
+      { countryCode: 'IS', transportToNext: 'plane' },
+      { countryCode: 'KR' },
+    ],
+  },
+  {
+    id: 'europe-3',
+    continent: '유럽',
+    title: '동유럽 문화 여행',
+    description: '한국 → 체코 → 오스트리아 → 헝가리 → 폴란드 → 한국',
+    badge: '가성비 좋음',
+    badgeColor: 'rose',
+    waypoints: [
+      { countryCode: 'KR', transportToNext: 'plane' },
+      { countryCode: 'CZ', transportToNext: 'train' },
+      { countryCode: 'AT', transportToNext: 'train' },
+      { countryCode: 'HU', transportToNext: 'train' },
+      { countryCode: 'PL', transportToNext: 'plane' },
+      { countryCode: 'KR' },
+    ],
+  },
+  // 아프리카
+  {
+    id: 'africa-1',
+    continent: '아프리카',
+    title: '북아프리카 & 사하라',
+    description: '한국 → 이집트 → 모로코 → 한국',
+    badge: '이국적 풍경',
+    badgeColor: 'orange',
+    waypoints: [
+      { countryCode: 'KR', transportToNext: 'plane' },
+      { countryCode: 'EG', transportToNext: 'plane' },
+      { countryCode: 'MA', transportToNext: 'plane' },
+      { countryCode: 'KR' },
+    ],
+  },
+  {
+    id: 'africa-2',
+    continent: '아프리카',
+    title: '동아프리카 사파리',
+    description: '한국 → 케냐 → 탄자니아 → 남아공 → 한국',
+    badge: '야생 탐험',
+    badgeColor: 'lime',
+    waypoints: [
+      { countryCode: 'KR', transportToNext: 'plane' },
+      { countryCode: 'KE', transportToNext: 'plane' },
+      { countryCode: 'TZ', transportToNext: 'plane' },
+      { countryCode: 'ZA', transportToNext: 'plane' },
+      { countryCode: 'KR' },
+    ],
+  },
+  // 미주
+  {
+    id: 'america-1',
+    continent: '미주',
+    title: '미국 횡단 & 로드트립',
+    description: '한국 → 뉴욕 → 라스베이거스 → LA → 하와이 → 한국',
+    badge: '버킷리스트',
+    badgeColor: 'blue',
+    waypoints: [
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780, transportToNext: 'plane' },
+      { countryCode: 'US', cityName: '뉴욕', lat: 40.7128, lng: -74.0060, transportToNext: 'car' },
+      { countryCode: 'US', cityName: '라스베이거스', lat: 36.1699, lng: -115.1398, transportToNext: 'car' },
+      { countryCode: 'US', cityName: 'LA', lat: 34.0522, lng: -118.2437, transportToNext: 'plane' },
+      { countryCode: 'US', cityName: '하와이', lat: 21.3069, lng: -157.8583, transportToNext: 'plane' },
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780 },
+    ],
+  },
+  {
+    id: 'america-2',
+    continent: '미주',
+    title: '중남미 마야 문명',
+    description: '한국 → 멕시코 → 과테말라 → 페루 → 한국',
+    badge: '고대 유적',
+    badgeColor: 'amber',
+    waypoints: [
+      { countryCode: 'KR', transportToNext: 'plane' },
+      { countryCode: 'MX', transportToNext: 'plane' },
+      { countryCode: 'GT', transportToNext: 'plane' },
+      { countryCode: 'PE', transportToNext: 'plane' },
+      { countryCode: 'KR' },
+    ],
+  },
+  {
+    id: 'america-3',
+    continent: '미주',
+    title: '캐나다 대자연',
+    description: '한국 → 밴쿠버 → 캘거리 → 토론토 → 한국',
+    badge: '자연 경관',
+    badgeColor: 'cyan',
+    waypoints: [
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780, transportToNext: 'plane' },
+      { countryCode: 'CA', cityName: '밴쿠버', lat: 49.2827, lng: -123.1207, transportToNext: 'car' },
+      { countryCode: 'CA', cityName: '캘거리', lat: 51.0447, lng: -114.0719, transportToNext: 'plane' },
+      { countryCode: 'CA', cityName: '토론토', lat: 43.6532, lng: -79.3832, transportToNext: 'plane' },
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780 },
+    ],
+  },
+  {
+    id: 'america-4',
+    continent: '미주',
+    title: '남미 삼국지',
+    description: '한국 → 브라질 → 아르헨티나 → 칠레 → 한국',
+    badge: '대륙 종단',
+    badgeColor: 'fuchsia',
+    waypoints: [
+      { countryCode: 'KR', transportToNext: 'plane' },
+      { countryCode: 'BR', transportToNext: 'plane' },
+      { countryCode: 'AR', transportToNext: 'plane' },
+      { countryCode: 'CL', transportToNext: 'plane' },
+      { countryCode: 'KR' },
+    ],
+  },
+  // 도시 코스
+  {
+    id: 'city-japan-1',
+    continent: '도시코스',
+    title: '🇯🇵 일본 골든루트 신칸센',
+    description: '서울 ✈️ 도쿄 🚆 교토 🚆 오사카 ✈️ 서울',
+    badge: '신칸센 여행',
+    badgeColor: 'rose',
+    waypoints: [
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780, transportToNext: 'plane' },
+      { countryCode: 'JP', cityName: '도쿄', lat: 35.6762, lng: 139.6503, transportToNext: 'train' },
+      { countryCode: 'JP', cityName: '교토', lat: 35.0116, lng: 135.7681, transportToNext: 'train' },
+      { countryCode: 'JP', cityName: '오사카', lat: 34.6937, lng: 135.5023, transportToNext: 'plane' },
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780 },
+    ],
+  },
+  {
+    id: 'city-italy-1',
+    continent: '도시코스',
+    title: '🇮🇹 이탈리아 3대 예술 도시',
+    description: '서울 ✈️ 로마 🚆 피렌체 🚆 베네치아 ✈️ 서울',
+    badge: '예술 여행',
+    badgeColor: 'amber',
+    waypoints: [
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780, transportToNext: 'plane' },
+      { countryCode: 'IT', cityName: '로마', lat: 41.9028, lng: 12.4964, transportToNext: 'train' },
+      { countryCode: 'IT', cityName: '피렌체', lat: 43.7696, lng: 11.2558, transportToNext: 'train' },
+      { countryCode: 'IT', cityName: '베네치아', lat: 45.4408, lng: 12.3155, transportToNext: 'plane' },
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780 },
+    ],
+  },
+  {
+    id: 'city-usa-west-1',
+    continent: '도시코스',
+    title: '🇺🇸 미국 서부 로드트립',
+    description: '서울 ✈️ 샌프란시스코 🚗 LA 🚗 라스베이거스 ✈️ 서울',
+    badge: '로드트립',
+    badgeColor: 'blue',
+    waypoints: [
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780, transportToNext: 'plane' },
+      { countryCode: 'US', cityName: '샌프란시스코', lat: 37.7749, lng: -122.4194, transportToNext: 'car' },
+      { countryCode: 'US', cityName: 'LA', lat: 34.0522, lng: -118.2437, transportToNext: 'car' },
+      { countryCode: 'US', cityName: '라스베이거스', lat: 36.1699, lng: -115.1398, transportToNext: 'plane' },
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780 },
+    ],
+  },
+  {
+    id: 'city-spain-1',
+    continent: '도시코스',
+    title: '🇪🇸 스페인 황금 삼각',
+    description: '서울 ✈️ 마드리드 🚆 바르셀로나 🚆 세비야 ✈️ 서울',
+    badge: '가우디 투어',
+    badgeColor: 'orange',
+    waypoints: [
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780, transportToNext: 'plane' },
+      { countryCode: 'ES', cityName: '마드리드', lat: 40.4168, lng: -3.7038, transportToNext: 'train' },
+      { countryCode: 'ES', cityName: '바르셀로나', lat: 41.3851, lng: 2.1734, transportToNext: 'train' },
+      { countryCode: 'ES', cityName: '세비야', lat: 37.3891, lng: -5.9845, transportToNext: 'plane' },
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780 },
+    ],
+  },
+  {
+    id: 'city-france-1',
+    continent: '도시코스',
+    title: '🇫🇷 프랑스 낭만 여행',
+    description: '서울 ✈️ 파리 🚆 리옹 🚆 니스 ✈️ 서울',
+    badge: 'TGV 여행',
+    badgeColor: 'indigo',
+    waypoints: [
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780, transportToNext: 'plane' },
+      { countryCode: 'FR', cityName: '파리', lat: 48.8566, lng: 2.3522, transportToNext: 'train' },
+      { countryCode: 'FR', cityName: '리옹', lat: 45.7640, lng: 4.8357, transportToNext: 'train' },
+      { countryCode: 'FR', cityName: '니스', lat: 43.7102, lng: 7.2620, transportToNext: 'plane' },
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780 },
+    ],
+  },
+  {
+    id: 'city-uk-1',
+    continent: '도시코스',
+    title: '🇬🇧 영국 클래식 투어',
+    description: '서울 ✈️ 런던 🚆 에든버러 🚆 맨체스터 ✈️ 서울',
+    badge: '해리포터',
+    badgeColor: 'slate',
+    waypoints: [
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780, transportToNext: 'plane' },
+      { countryCode: 'GB', cityName: '런던', lat: 51.5074, lng: -0.1278, transportToNext: 'train' },
+      { countryCode: 'GB', cityName: '에든버러', lat: 55.9533, lng: -3.1883, transportToNext: 'train' },
+      { countryCode: 'GB', cityName: '맨체스터', lat: 53.4808, lng: -2.2426, transportToNext: 'plane' },
+      { countryCode: 'KR', cityName: '서울', lat: 37.5665, lng: 126.9780 },
+    ],
+  },
+];
 
 // Weather & Exchange Rate Types
 interface WeatherData {
@@ -513,15 +1222,6 @@ function getCountryInfo(rawCountry: string | undefined): CountryInfo {
 
 const DEFAULT_ROUTE_COORDS: [number, number][] = [[41.3879, 2.1699], [43.2965, 5.3698]];
 
-function getHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
 function calculateBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const phi1 = (lat1 * Math.PI) / 180;
   const phi2 = (lat2 * Math.PI) / 180;
@@ -729,7 +1429,7 @@ export default function EarthTravel() {
   const [mounted, setMounted] = useState(false);
 
   // Navigation
-  const [activeTab, setActiveTab] = useState<'cruise' | 'visited'>('visited');
+  const [activeTab, setActiveTab] = useState<'cruise' | 'visited' | 'myTrip'>('visited');
 
   // Cruise States
   const [selectedPresetId, setSelectedPresetId] = useState(CRUISE_PRESETS[0].id);
@@ -765,6 +1465,47 @@ export default function EarthTravel() {
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({});
   const [isLoadingWeather, setIsLoadingWeather] = useState<Record<string, boolean>>({});
 
+  // My Trip States
+  const [myTripWaypoints, setMyTripWaypoints] = useState<MyTripWaypoint[]>([]);
+  const [myTripProgress, setMyTripProgress] = useState(0);
+  const [myTripIsPlaying, setMyTripIsPlaying] = useState(false);
+  const [myTripSpeedMultiplier, setMyTripSpeedMultiplier] = useState(1);
+  const [myTripIsLooping, setMyTripIsLooping] = useState(true);
+  const [myTripCameraTracking, setMyTripCameraTracking] = useState(false);
+  const [myTripSearchQuery, setMyTripSearchQuery] = useState('');
+  const [myTripFilterContinent, setMyTripFilterContinent] = useState('전체');
+
+  // My Trip Save/Load States
+  const [showSaveTripModal, setShowSaveTripModal] = useState(false);
+  const [showLoadTripModal, setShowLoadTripModal] = useState(false);
+  const [savedTrips, setSavedTrips] = useState<SavedTrip[]>([]);
+  const [saveTripTitle, setSaveTripTitle] = useState('');
+  const [isSavingTrip, setIsSavingTrip] = useState(false);
+  const [isLoadingTrips, setIsLoadingTrips] = useState(false);
+  const [tripSaveMessage, setTripSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Preset Trip States
+  const [showPresetModal, setShowPresetModal] = useState(false);
+  const [presetContinent, setPresetContinent] = useState<PresetContinent>('아시아');
+  const [confirmPresetLoad, setConfirmPresetLoad] = useState<TripPreset | null>(null);
+
+  // Nominatim Search States (도시/랜드마크 검색)
+  const [nominatimQuery, setNominatimQuery] = useState('');
+  const [nominatimResults, setNominatimResults] = useState<NominatimResult[]>([]);
+  const [isSearchingNominatim, setIsSearchingNominatim] = useState(false);
+  const [showNominatimDropdown, setShowNominatimDropdown] = useState(false);
+  const nominatimDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cinema Mode States (시네마틱 전체화면 모드)
+  const [isCinemaMode, setIsCinemaMode] = useState(false);
+  const cinemaContainerRef = useRef<HTMLDivElement>(null);
+
+  // Sound States (Web Audio API 효과음)
+  const [isSoundEnabled, setIsSoundEnabled] = useState(false);
+  const [soundInitialized, setSoundInitialized] = useState(false);
+  const currentSoundStopRef = useRef<(() => void) | null>(null);
+  const lastLegIndexRef = useRef<number>(-1);
+
   // Map
   const [mapTheme, setMapTheme] = useState<'dark' | 'satellite' | 'light' | 'korean'>('dark');
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -777,6 +1518,13 @@ export default function EarthTravel() {
   const portStatusesRef = useRef<string[]>([]);
   const animationFrameRef = useRef<number | null>(null);
   const flagMarkersRef = useRef<L.Marker[]>([]);
+
+  // My Trip Refs
+  const myTripPolylineRef = useRef<L.Polyline | null>(null);
+  const myTripTraveledPolylineRef = useRef<L.Polyline | null>(null);
+  const myTripVehicleRef = useRef<L.Marker | null>(null);
+  const myTripMarkersRef = useRef<L.Marker[]>([]);
+  const myTripAnimationRef = useRef<number | null>(null);
 
   // Hydration fix
   useEffect(() => {
@@ -928,6 +1676,112 @@ export default function EarthTravel() {
     return { count, worldPercent, continentCounts };
   }, [visitedCountries]);
 
+  // My Trip Route Calculation
+  const getCurvatureForTransport = (mode?: TransportMode): number => {
+    switch (mode) {
+      case 'plane': return 0.15;
+      case 'boat': return 0.08;
+      case 'train': case 'bus': case 'car': return 0.02;
+      default: return 0.15;
+    }
+  };
+
+  const myTripRouteData = useMemo(() => {
+    if (myTripWaypoints.length < 2) return { routePoints: [] as [number, number][], legStartIndices: [] as number[] };
+
+    const allPoints: [number, number][] = [];
+    const legStartIndices: number[] = [0];
+
+    for (let i = 0; i < myTripWaypoints.length - 1; i++) {
+      const w1 = myTripWaypoints[i];
+      const w2 = myTripWaypoints[i + 1];
+      const curvature = getCurvatureForTransport(w1.transportToNext);
+      const segment = generateCurvedSegment([w1.lat, w1.lng], [w2.lat, w2.lng], curvature, 25);
+      if (i > 0) segment.shift();
+      allPoints.push(...segment);
+      if (i < myTripWaypoints.length - 2) {
+        legStartIndices.push(allPoints.length - 1);
+      }
+    }
+
+    return { routePoints: allPoints, legStartIndices };
+  }, [myTripWaypoints]);
+
+  const myTripCurrentMotion = useMemo(() => {
+    const pts = myTripRouteData.routePoints;
+    if (pts.length < 2) return { lat: 0, lng: 0, heading: 0, currentLegIndex: 0 };
+
+    const maxIdx = pts.length - 1;
+    const clampedProgress = Math.max(0, Math.min(1, myTripProgress));
+    const floatIdx = clampedProgress * maxIdx;
+    const lowerIdx = Math.floor(floatIdx);
+    const upperIdx = Math.ceil(floatIdx);
+    const remainder = floatIdx - lowerIdx;
+    const p1 = pts[Math.min(lowerIdx, maxIdx)];
+    const p2 = pts[Math.min(upperIdx, maxIdx)];
+    const lat = p1[0] + (p2[0] - p1[0]) * remainder;
+    const lng = p1[1] + (p2[1] - p1[1]) * remainder;
+    const lookP = pts[Math.min(lowerIdx + 1, maxIdx)];
+    const heading = calculateBearing(p1[0], p1[1], lookP[0], lookP[1]);
+
+    // Determine current leg index
+    let currentLegIndex = 0;
+    if (myTripWaypoints.length >= 2) {
+      const numLegs = myTripWaypoints.length - 1;
+      const legFloat = clampedProgress * numLegs;
+      currentLegIndex = Math.min(Math.floor(legFloat), numLegs - 1);
+    }
+
+    return { lat, lng, heading, currentLegIndex };
+  }, [myTripRouteData.routePoints, myTripProgress, myTripWaypoints.length]);
+
+  // 구간별 거리/시간 계산
+  const myTripLegInfos = useMemo((): MyTripLegInfo[] => {
+    if (myTripWaypoints.length < 2) return [];
+    const infos: MyTripLegInfo[] = [];
+    for (let i = 0; i < myTripWaypoints.length - 1; i++) {
+      const w1 = myTripWaypoints[i];
+      const w2 = myTripWaypoints[i + 1];
+      const distanceKm = calculateHaversineDistance(w1.lat, w1.lng, w2.lat, w2.lng);
+      const mode = w1.transportToNext || 'plane';
+      const travelTimeHours = calculateTravelTime(distanceKm, mode);
+      infos.push({
+        distanceKm,
+        travelTimeHours,
+        formattedDistance: distanceKm >= 1000
+          ? `${(distanceKm / 1000).toFixed(1)}천km`
+          : `${Math.round(distanceKm).toLocaleString()}km`,
+        formattedTime: formatTravelTime(travelTimeHours),
+      });
+    }
+    return infos;
+  }, [myTripWaypoints]);
+
+  // 총 거리/시간 요약
+  const myTripTotalStats = useMemo(() => {
+    if (myTripLegInfos.length === 0) return { totalKm: 0, totalHours: 0, formattedDistance: '', formattedTime: '' };
+    const totalKm = myTripLegInfos.reduce((sum, leg) => sum + leg.distanceKm, 0);
+    const totalHours = myTripLegInfos.reduce((sum, leg) => sum + leg.travelTimeHours, 0);
+    return {
+      totalKm,
+      totalHours,
+      formattedDistance: totalKm >= 1000
+        ? `${(totalKm / 1000).toFixed(1)}천km`
+        : `${Math.round(totalKm).toLocaleString()}km`,
+      formattedTime: formatTravelTime(totalHours),
+    };
+  }, [myTripLegInfos]);
+
+  const myTripFilteredCountries = useMemo(() => {
+    const q = myTripSearchQuery.trim().toLowerCase();
+    return WORLD_COUNTRIES.filter((c) => {
+      const matchQuery = !q || c.ko.toLowerCase().includes(q) || c.en.toLowerCase().includes(q) || c.code.toLowerCase() === q;
+      const matchContinent = myTripFilterContinent === '전체' || c.continent === myTripFilterContinent;
+      // 중복 국가 허용 - 왕복/경유를 위해 같은 나라 여러 번 추가 가능
+      return matchQuery && matchContinent;
+    });
+  }, [myTripSearchQuery, myTripFilterContinent]);
+
   // Fetch weather data with caching
   const fetchWeather = useCallback(async (lat: number, lng: number, cacheKey: string) => {
     if (weatherCache[cacheKey] || isLoadingWeather[cacheKey]) return;
@@ -990,9 +1844,8 @@ export default function EarthTravel() {
       }
 
       setExchangeRates(rates);
-    } catch (err) {
-      console.error('Exchange rate fetch error:', err);
-      // Use static fallback rates
+    } catch {
+      // Network error - silently use static fallback rates
       setExchangeRates(STATIC_RATES);
     }
   }, [exchangeRates]);
@@ -1059,8 +1912,11 @@ export default function EarthTravel() {
     } else if (activeTab === 'visited' && visitedCountries.length > 0) {
       const latLngs = visitedCountries.map((c) => [c.lat, c.lng] as [number, number]);
       map.fitBounds(L.latLngBounds(latLngs), { padding: [80, 80], maxZoom: 6 });
+    } else if (activeTab === 'myTrip' && myTripWaypoints.length > 0) {
+      const latLngs = myTripWaypoints.map((w) => [w.lat, w.lng] as [number, number]);
+      map.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: 6 });
     }
-  }, [activeTab, waypoints, visitedCountries]);
+  }, [activeTab, waypoints, visitedCountries, myTripWaypoints]);
 
   // Initialize map
   useEffect(() => {
@@ -1202,7 +2058,7 @@ export default function EarthTravel() {
       const step = delta / baseDuration;
 
       setProgress((prev) => {
-        let next = prev + step;
+        const next = prev + step;
         if (next >= 1) {
           if (isLooping) return 0;
           setIsPlaying(false);
@@ -1218,6 +2074,204 @@ export default function EarthTravel() {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
   }, [activeTab, isPlaying, speedMultiplier, isLooping, waypoints.length, mounted]);
+
+  // My Trip Map Layers
+  useEffect(() => {
+    if (!leafletMapRef.current || !mounted) return;
+    const map = leafletMapRef.current;
+
+    // Cleanup
+    if (myTripPolylineRef.current) map.removeLayer(myTripPolylineRef.current);
+    if (myTripTraveledPolylineRef.current) map.removeLayer(myTripTraveledPolylineRef.current);
+    if (myTripVehicleRef.current) map.removeLayer(myTripVehicleRef.current);
+    myTripMarkersRef.current.forEach((m) => map.removeLayer(m));
+    myTripMarkersRef.current = [];
+    myTripPolylineRef.current = null;
+    myTripTraveledPolylineRef.current = null;
+    myTripVehicleRef.current = null;
+
+    if (activeTab !== 'myTrip' || myTripWaypoints.length < 2) return;
+
+    const pts = myTripRouteData.routePoints;
+    if (pts.length < 2) return;
+
+    // Draw full route (gray dashed)
+    myTripPolylineRef.current = L.polyline(pts, {
+      color: '#64748b',
+      weight: 3,
+      opacity: 0.45,
+      dashArray: '6, 8'
+    }).addTo(map);
+
+    // Draw traveled route (cyan glow)
+    myTripTraveledPolylineRef.current = L.polyline([], {
+      color: '#00f2fe',
+      weight: 5,
+      opacity: 0.95
+    }).addTo(map);
+
+    // Add waypoint markers
+    myTripWaypoints.forEach((w, index) => {
+      const isStart = index === 0;
+      const isEnd = index === myTripWaypoints.length - 1;
+      const flagUrl = `https://flagcdn.com/w40/${w.countryCode.toLowerCase()}.png`;
+
+      const markerHtml = `
+        <div style="position:relative; display:flex; flex-direction:column; align-items:center;">
+          <div style="width:28px; height:28px; border-radius:50%; background:${isStart ? 'linear-gradient(135deg, #059669, #047857)' : isEnd ? 'linear-gradient(135deg, #7c3aed, #db2777)' : 'linear-gradient(135deg, #475569, #334155)'}; border:2.5px solid ${isStart ? '#a7f3d0' : isEnd ? '#c084fc' : '#94a3b8'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:11px; box-shadow:0 3px 14px rgba(0,0,0,0.65);">
+            ${isStart ? '🚩' : isEnd ? '🏁' : index + 1}
+          </div>
+          <div style="background:rgba(15,23,42,0.96); color:#f8fafc; font-size:10px; font-weight:600; padding:2px 7px; border-radius:6px; border:1px solid ${isStart ? '#10b981' : isEnd ? '#c084fc' : 'rgba(255,255,255,0.22)'}; white-space:nowrap; margin-top:4px; box-shadow:0 3px 10px rgba(0,0,0,0.65); display:flex; align-items:center; gap:4px;">
+            <img src="${flagUrl}" alt="${w.countryCode}" style="width:16px; height:11px; border-radius:2px; object-fit:cover;" onerror="this.style.display='none'"/>
+            <span>${w.name}</span>
+          </div>
+        </div>
+      `;
+
+      const icon = L.divIcon({
+        html: markerHtml,
+        className: 'my-trip-waypoint-marker',
+        iconSize: [42, 54],
+        iconAnchor: [21, 14]
+      });
+
+      const marker = L.marker([w.lat, w.lng], { icon }).addTo(map);
+      myTripMarkersRef.current.push(marker);
+    });
+
+    // Fit bounds
+    const latLngs = myTripWaypoints.map((w) => [w.lat, w.lng] as [number, number]);
+    map.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: 6 });
+
+  }, [activeTab, myTripWaypoints, myTripRouteData.routePoints, mounted]);
+
+  // My Trip Vehicle Animation
+  useEffect(() => {
+    if (activeTab !== 'myTrip' || !leafletMapRef.current || !mounted || myTripWaypoints.length < 2) return;
+    const map = leafletMapRef.current;
+    const pts = myTripRouteData.routePoints;
+    if (pts.length < 2) return;
+
+    const currentTransport = myTripWaypoints[myTripCurrentMotion.currentLegIndex]?.transportToNext || 'plane';
+
+    const renderMyTripVehicle = (mode: TransportMode) => {
+      const colors: Record<TransportMode, string> = {
+        plane: '#fbbf24',
+        boat: '#22d3ee',
+        train: '#a78bfa',
+        bus: '#fb923c',
+        car: '#34d399'
+      };
+      const color = colors[mode];
+
+      if (mode === 'plane') {
+        return `<svg style="width:30px; height:30px; color:${color};" viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`;
+      }
+      if (mode === 'boat') {
+        return `<div style="display:flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:50%; background:rgba(6,182,212,0.25); border:2px solid ${color};"><svg style="width:24px; height:24px; color:#fff;" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 6"/><path d="M12 10V4"/><path d="m12 4 5 3-5-3"/></svg></div>`;
+      }
+      if (mode === 'train') {
+        return `<div style="display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px; background:${color}; border:2px solid #fff;"><svg style="width:18px; height:18px; color:#fff;" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="16" rx="2"/><path d="M4 11h16"/><path d="M12 3v8"/><circle cx="8" cy="15" r="1" fill="currentColor"/><circle cx="16" cy="15" r="1" fill="currentColor"/><path d="M8 19l-2 3"/><path d="M16 19l2 3"/></svg></div>`;
+      }
+      if (mode === 'bus') {
+        return `<div style="display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px; background:${color}; border:2px solid #fff;"><svg style="width:18px; height:18px; color:#fff;" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 6v6"/><path d="M16 6v6"/><path d="M2 12h20"/><path d="M7 18h2"/><path d="M15 18h2"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg></div>`;
+      }
+      // car
+      return `<svg style="width:28px; height:28px; color:${color};" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9C2.1 11 2 11.2 2 11.5V16c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>`;
+    };
+
+    const vehicleIcon = L.divIcon({
+      html: `<div style="transform: rotate(${Math.round(myTripCurrentMotion.heading)}deg); transition: transform 0.1s linear;">${renderMyTripVehicle(currentTransport)}</div>`,
+      className: 'my-trip-vehicle-marker',
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
+    });
+
+    if (!myTripVehicleRef.current) {
+      myTripVehicleRef.current = L.marker([myTripCurrentMotion.lat, myTripCurrentMotion.lng], {
+        icon: vehicleIcon,
+        zIndexOffset: 1200
+      }).addTo(map);
+    } else {
+      myTripVehicleRef.current.setLatLng([myTripCurrentMotion.lat, myTripCurrentMotion.lng]);
+      myTripVehicleRef.current.setIcon(vehicleIcon);
+    }
+
+    // Update traveled polyline
+    if (myTripTraveledPolylineRef.current && pts.length > 1) {
+      const activeIdx = Math.floor(myTripProgress * (pts.length - 1));
+      const traveled = pts.slice(0, activeIdx + 1);
+      traveled.push([myTripCurrentMotion.lat, myTripCurrentMotion.lng]);
+      myTripTraveledPolylineRef.current.setLatLngs(traveled);
+    }
+
+    // Camera tracking - enhanced for cinema mode
+    if (myTripCameraTracking && myTripIsPlaying) {
+      if (isCinemaMode) {
+        // Cinema mode: smoother tracking with dynamic zoom
+        const totalLegs = myTripWaypoints.length - 1;
+        const progressPerLeg = 1 / totalLegs;
+        const currentLegIdx = Math.min(Math.floor(myTripProgress / progressPerLeg), totalLegs - 1);
+        const legStartProgress = currentLegIdx * progressPerLeg;
+        const legProgress = (myTripProgress - legStartProgress) / progressPerLeg;
+
+        // Dynamic zoom: zoom in when approaching destination
+        let targetZoom = 5;
+        if (legProgress > 0.85) {
+          // Arrival zoom: gradually zoom in from 5 to 7
+          targetZoom = 5 + (legProgress - 0.85) / 0.15 * 2;
+        } else if (legProgress < 0.15) {
+          // Departure: gradually zoom out from 6 to 5
+          targetZoom = 6 - legProgress / 0.15;
+        }
+
+        const currentZoom = map.getZoom();
+        const smoothZoom = currentZoom + (targetZoom - currentZoom) * 0.05;
+
+        map.setView([myTripCurrentMotion.lat, myTripCurrentMotion.lng], smoothZoom, {
+          animate: true,
+          duration: 0.5,
+          easeLinearity: 0.5,
+        });
+      } else {
+        // Normal mode: simple pan
+        map.panTo([myTripCurrentMotion.lat, myTripCurrentMotion.lng], { animate: true, duration: 0.3 });
+      }
+    }
+
+  }, [activeTab, myTripCurrentMotion, myTripWaypoints, myTripRouteData.routePoints, myTripProgress, myTripCameraTracking, myTripIsPlaying, mounted, isCinemaMode]);
+
+  // My Trip Animation Loop
+  useEffect(() => {
+    if (activeTab !== 'myTrip' || !myTripIsPlaying || !mounted || myTripWaypoints.length < 2) {
+      if (myTripAnimationRef.current) cancelAnimationFrame(myTripAnimationRef.current);
+      return;
+    }
+
+    let lastTime = performance.now();
+    const loop = (currentTime: number) => {
+      const delta = (currentTime - lastTime) / 1000;
+      lastTime = currentTime;
+      const baseDuration = (Math.max(2, myTripWaypoints.length) * 4.2) / myTripSpeedMultiplier;
+      const step = delta / baseDuration;
+
+      setMyTripProgress((prev) => {
+        const next = prev + step;
+        if (next >= 1) {
+          if (myTripIsLooping) return 0;
+          setMyTripIsPlaying(false);
+          return 1;
+        }
+        return next;
+      });
+      myTripAnimationRef.current = requestAnimationFrame(loop);
+    };
+
+    myTripAnimationRef.current = requestAnimationFrame(loop);
+    return () => {
+      if (myTripAnimationRef.current) cancelAnimationFrame(myTripAnimationRef.current);
+    };
+  }, [activeTab, myTripIsPlaying, myTripSpeedMultiplier, myTripIsLooping, myTripWaypoints.length, mounted]);
 
   // Handlers
   const handleSelectPreset = (preset: CruisePreset) => {
@@ -1333,6 +2387,539 @@ export default function EarthTravel() {
     setProgress(0);
   };
 
+  // My Trip Handlers
+  const handleAddToMyTrip = (country: VisitedCountry) => {
+    // 고유 id 생성 - 동일 국가도 여러 번 추가 가능 (왕복/경유 지원)
+    const uniqueId = `${country.code}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const newWaypoint: MyTripWaypoint = {
+      id: uniqueId,
+      name: country.ko,
+      countryCode: country.code,
+      lat: country.lat,
+      lng: country.lng,
+      order: myTripWaypoints.length,
+      transportToNext: 'plane',
+    };
+    setMyTripWaypoints(prev => [...prev, newWaypoint]);
+    setMyTripProgress(0);
+    setMyTripIsPlaying(false);
+
+    // Pan to country
+    if (leafletMapRef.current) {
+      leafletMapRef.current.setView([country.lat, country.lng], 5, { animate: true });
+    }
+  };
+
+  const handleRemoveFromMyTrip = (waypointId: string) => {
+    setMyTripWaypoints(prev => {
+      const filtered = prev.filter(w => w.id !== waypointId);
+      return filtered.map((w, i) => ({ ...w, order: i }));
+    });
+    setMyTripProgress(0);
+  };
+
+  const handleMoveMyTripWaypoint = (fromIdx: number, toIdx: number) => {
+    if (toIdx < 0 || toIdx >= myTripWaypoints.length) return;
+    setMyTripWaypoints(prev => {
+      const updated = [...prev];
+      const [moved] = updated.splice(fromIdx, 1);
+      updated.splice(toIdx, 0, moved);
+      return updated.map((w, i) => ({ ...w, order: i }));
+    });
+    setMyTripProgress(0);
+  };
+
+  const handleSetLegTransport = (waypointIdx: number, mode: TransportMode) => {
+    setMyTripWaypoints(prev =>
+      prev.map((w, i) => i === waypointIdx ? { ...w, transportToNext: mode } : w)
+    );
+    setMyTripProgress(0);
+  };
+
+  const handleMyTripReset = () => {
+    setMyTripProgress(0);
+    setMyTripIsPlaying(false);
+  };
+
+  const handleClearMyTrip = () => {
+    setMyTripWaypoints([]);
+    setMyTripProgress(0);
+    setMyTripIsPlaying(false);
+  };
+
+  // Nominatim Search Handler (도시/랜드마크 검색)
+  const searchNominatim = useCallback(async (query: string) => {
+    if (!query.trim() || query.trim().length < 2) {
+      setNominatimResults([]);
+      setShowNominatimDropdown(false);
+      return;
+    }
+
+    setIsSearchingNominatim(true);
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=8&accept-language=ko&addressdetails=1`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'EarthTravel/1.0 (https://earth-travel.vercel.app)',
+        },
+      });
+      if (!res.ok) throw new Error('Search failed');
+      const data: NominatimResult[] = await res.json();
+      setNominatimResults(data);
+      setShowNominatimDropdown(data.length > 0);
+    } catch {
+      setNominatimResults([]);
+      setShowNominatimDropdown(false);
+    } finally {
+      setIsSearchingNominatim(false);
+    }
+  }, []);
+
+  const handleNominatimQueryChange = (value: string) => {
+    setNominatimQuery(value);
+
+    // Debounce 300ms
+    if (nominatimDebounceRef.current) {
+      clearTimeout(nominatimDebounceRef.current);
+    }
+    nominatimDebounceRef.current = setTimeout(() => {
+      searchNominatim(value);
+    }, 300);
+  };
+
+  const handleSelectNominatimResult = (result: NominatimResult) => {
+    const countryCode = result.address?.country_code?.toUpperCase() || 'XX';
+    const cityName = result.name || result.display_name.split(',')[0];
+    const lat = parseFloat(result.lat);
+    const lng = parseFloat(result.lon);
+
+    // Find country info from WORLD_COUNTRIES for proper flag/name
+    const countryInfo = WORLD_COUNTRIES.find(c => c.code === countryCode);
+    const displayName = countryInfo
+      ? `${cityName} (${countryInfo.ko})`
+      : `${cityName} (${result.address?.country || '알 수 없음'})`;
+
+    const uniqueId = `${countryCode}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const newWaypoint: MyTripWaypoint = {
+      id: uniqueId,
+      name: displayName,
+      countryCode: countryCode,
+      lat: lat,
+      lng: lng,
+      order: myTripWaypoints.length,
+      transportToNext: 'plane',
+    };
+
+    setMyTripWaypoints(prev => [...prev, newWaypoint]);
+    setMyTripProgress(0);
+    setMyTripIsPlaying(false);
+    setNominatimQuery('');
+    setNominatimResults([]);
+    setShowNominatimDropdown(false);
+
+    // Pan to location
+    if (leafletMapRef.current) {
+      leafletMapRef.current.setView([lat, lng], 8, { animate: true });
+    }
+  };
+
+  // Cinema Mode Handlers (시네마틱 전체화면 모드)
+  const enterCinemaMode = useCallback(() => {
+    if (myTripWaypoints.length < 2) return;
+    setIsCinemaMode(true);
+    setMyTripCameraTracking(true);
+
+    // Enter fullscreen
+    if (cinemaContainerRef.current?.requestFullscreen) {
+      cinemaContainerRef.current.requestFullscreen().catch(() => {
+        // Fullscreen failed, continue in windowed cinema mode
+      });
+    }
+
+    // Start playing if not already
+    if (!myTripIsPlaying) {
+      setMyTripIsPlaying(true);
+    }
+  }, [myTripWaypoints.length, myTripIsPlaying]);
+
+  const exitCinemaMode = useCallback(() => {
+    setIsCinemaMode(false);
+
+    // Exit fullscreen
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, []);
+
+  const toggleCinemaMode = useCallback(() => {
+    if (isCinemaMode) {
+      exitCinemaMode();
+    } else {
+      enterCinemaMode();
+    }
+  }, [isCinemaMode, enterCinemaMode, exitCinemaMode]);
+
+  // Cinema mode keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle if myTrip tab is active
+      if (activeTab !== 'myTrip') return;
+
+      // Ignore if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleCinemaMode();
+      } else if (e.key === 'Escape' && isCinemaMode) {
+        e.preventDefault();
+        exitCinemaMode();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab, isCinemaMode, toggleCinemaMode, exitCinemaMode]);
+
+  // Listen for fullscreen change (in case user exits via browser controls)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && isCinemaMode) {
+        setIsCinemaMode(false);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [isCinemaMode]);
+
+  // Sound Handlers (Web Audio API 효과음)
+  const toggleSound = useCallback(() => {
+    if (!isSoundEnabled) {
+      // 사운드 켜기 - AudioContext 초기화 (Autoplay Policy 대응)
+      const success = soundEngine.init();
+      if (success) {
+        setSoundInitialized(true);
+        setIsSoundEnabled(true);
+        soundEngine.resume();
+      }
+    } else {
+      // 사운드 끄기
+      soundEngine.stopAll();
+      setIsSoundEnabled(false);
+    }
+  }, [isSoundEnabled]);
+
+  // Sound Effect Integration - leg 변화 감지 및 사운드 재생
+  useEffect(() => {
+    if (!isSoundEnabled || !soundInitialized || !myTripIsPlaying || myTripWaypoints.length < 2) {
+      // 사운드 비활성화 또는 재생 중지 시 현재 사운드 정리
+      if (currentSoundStopRef.current) {
+        currentSoundStopRef.current();
+        currentSoundStopRef.current = null;
+      }
+      return;
+    }
+
+    // Calculate current leg index
+    const totalLegs = myTripWaypoints.length - 1;
+    const progressPerLeg = 1 / totalLegs;
+    const currentLegIdx = Math.min(Math.floor(myTripProgress / progressPerLeg), totalLegs - 1);
+
+    // Leg 변경 감지 - 새 구간 시작 시 사운드 변경
+    if (currentLegIdx !== lastLegIndexRef.current) {
+      // 이전 사운드 정지
+      if (currentSoundStopRef.current) {
+        currentSoundStopRef.current();
+        currentSoundStopRef.current = null;
+      }
+
+      // 도착 차임벨 (첫 구간이 아닐 때)
+      if (lastLegIndexRef.current !== -1 && lastLegIndexRef.current < currentLegIdx) {
+        soundEngine.playArrivalChime();
+      }
+
+      // 새 구간 교통수단 사운드 시작
+      const currentWaypoint = myTripWaypoints[currentLegIdx];
+      const transport = currentWaypoint.transportToNext || 'plane';
+      const isStart = currentLegIdx === 0 || lastLegIndexRef.current === -1;
+
+      // 약간의 지연 후 교통수단 사운드 시작 (차임벨과 겹치지 않도록)
+      setTimeout(() => {
+        if (myTripIsPlaying && isSoundEnabled) {
+          currentSoundStopRef.current = soundEngine.playTransportSound(transport, isStart);
+        }
+      }, isStart ? 0 : 500);
+
+      lastLegIndexRef.current = currentLegIdx;
+    }
+
+    // 여정 완료 시 최종 차임벨
+    if (myTripProgress >= 0.999 && lastLegIndexRef.current !== -2) {
+      if (currentSoundStopRef.current) {
+        currentSoundStopRef.current();
+        currentSoundStopRef.current = null;
+      }
+      soundEngine.playArrivalChime();
+      lastLegIndexRef.current = -2; // 완료 표시
+    }
+  }, [isSoundEnabled, soundInitialized, myTripIsPlaying, myTripProgress, myTripWaypoints]);
+
+  // Sound cleanup on tab change or component unmount
+  useEffect(() => {
+    return () => {
+      soundEngine.stopAll();
+      soundEngine.cleanup();
+    };
+  }, []);
+
+  // Sound cleanup when tab changes away from myTrip
+  useEffect(() => {
+    if (activeTab !== 'myTrip') {
+      soundEngine.stopAll();
+      if (currentSoundStopRef.current) {
+        currentSoundStopRef.current();
+        currentSoundStopRef.current = null;
+      }
+      lastLegIndexRef.current = -1;
+    }
+  }, [activeTab]);
+
+  // Reset sound state when simulation stops
+  useEffect(() => {
+    if (!myTripIsPlaying) {
+      if (currentSoundStopRef.current) {
+        currentSoundStopRef.current();
+        currentSoundStopRef.current = null;
+      }
+      lastLegIndexRef.current = -1;
+    }
+  }, [myTripIsPlaying]);
+
+  // Calculate current leg info for cinema HUD
+  const cinemaHudInfo = useMemo(() => {
+    if (myTripWaypoints.length < 2) return null;
+
+    // Calculate which leg we're on based on progress
+    const totalLegs = myTripWaypoints.length - 1;
+    const progressPerLeg = 1 / totalLegs;
+    const currentLegIdx = Math.min(Math.floor(myTripProgress / progressPerLeg), totalLegs - 1);
+
+    const fromWaypoint = myTripWaypoints[currentLegIdx];
+    const toWaypoint = myTripWaypoints[currentLegIdx + 1];
+    const transport = fromWaypoint.transportToNext || 'plane';
+    const speed = TRANSPORT_SPEEDS[transport];
+
+    const transportEmojis: Record<TransportMode, string> = {
+      plane: '✈️', boat: '🚢', train: '🚆', bus: '🚌', car: '🚗'
+    };
+
+    // Calculate leg progress
+    const legStartProgress = currentLegIdx * progressPerLeg;
+    const legProgress = (myTripProgress - legStartProgress) / progressPerLeg;
+
+    return {
+      fromName: fromWaypoint.name,
+      toName: toWaypoint.name,
+      fromCode: fromWaypoint.countryCode,
+      toCode: toWaypoint.countryCode,
+      transport,
+      transportEmoji: transportEmojis[transport],
+      speed,
+      legIndex: currentLegIdx,
+      totalLegs,
+      legProgress,
+      isArriving: legProgress > 0.9,
+    };
+  }, [myTripWaypoints, myTripProgress]);
+
+  // My Trip Save/Load Handlers
+  const handleSaveTrip = async () => {
+    if (!supabase) {
+      setTripSaveMessage({ type: 'error', text: 'Supabase가 설정되지 않았습니다.' });
+      return;
+    }
+    if (myTripWaypoints.length < 2) {
+      setTripSaveMessage({ type: 'error', text: '2개 이상의 국가가 필요합니다.' });
+      return;
+    }
+    if (!saveTripTitle.trim()) {
+      setTripSaveMessage({ type: 'error', text: '여정 제목을 입력해주세요.' });
+      return;
+    }
+
+    setIsSavingTrip(true);
+    try {
+      const deviceId = getDeviceId();
+      const { error } = await supabase.from('my_trips').insert({
+        device_id: deviceId,
+        title: saveTripTitle.trim(),
+        waypoints: myTripWaypoints,
+        total_distance_km: myTripTotalStats.totalKm,
+        total_time_hours: myTripTotalStats.totalHours,
+      });
+
+      if (error) throw error;
+
+      setTripSaveMessage({ type: 'success', text: '여정이 저장되었습니다!' });
+      setSaveTripTitle('');
+      setTimeout(() => {
+        setShowSaveTripModal(false);
+        setTripSaveMessage(null);
+      }, 1500);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message :
+        (err && typeof err === 'object' && 'message' in err) ? String((err as { message: string }).message) : '알 수 없는 오류';
+      // 테이블 없음 에러 체크
+      if (errorMsg.includes('relation') && errorMsg.includes('does not exist')) {
+        setTripSaveMessage({ type: 'error', text: 'my_trips 테이블이 없습니다. Supabase에서 테이블을 생성해주세요.' });
+      } else {
+        setTripSaveMessage({ type: 'error', text: `저장 실패: ${errorMsg}` });
+      }
+    } finally {
+      setIsSavingTrip(false);
+    }
+  };
+
+  const handleLoadSavedTrips = async () => {
+    if (!supabase) {
+      setTripSaveMessage({ type: 'error', text: 'Supabase가 설정되지 않았습니다.' });
+      return;
+    }
+
+    setIsLoadingTrips(true);
+    try {
+      const deviceId = getDeviceId();
+      const { data, error } = await supabase
+        .from('my_trips')
+        .select('*')
+        .eq('device_id', deviceId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setSavedTrips(data || []);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message :
+        (err && typeof err === 'object' && 'message' in err) ? String((err as { message: string }).message) : '알 수 없는 오류';
+      if (errorMsg.includes('relation') && errorMsg.includes('does not exist')) {
+        setTripSaveMessage({ type: 'error', text: 'my_trips 테이블이 없습니다. Supabase에서 테이블을 생성해주세요.' });
+      } else {
+        setTripSaveMessage({ type: 'error', text: `불러오기 실패: ${errorMsg}` });
+      }
+    } finally {
+      setIsLoadingTrips(false);
+    }
+  };
+
+  const handleSelectSavedTrip = (trip: SavedTrip) => {
+    setMyTripWaypoints(trip.waypoints);
+    setMyTripProgress(0);
+    setMyTripIsPlaying(false);
+    setShowLoadTripModal(false);
+
+    // 카메라 포커싱
+    if (leafletMapRef.current && trip.waypoints.length > 0) {
+      const latLngs = trip.waypoints.map((w) => [w.lat, w.lng] as [number, number]);
+      leafletMapRef.current.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: 6 });
+    }
+  };
+
+  const handleDeleteSavedTrip = async (tripId: string) => {
+    if (!supabase) return;
+
+    try {
+      const { error } = await supabase.from('my_trips').delete().eq('id', tripId);
+      if (error) throw error;
+      setSavedTrips((prev) => prev.filter((t) => t.id !== tripId));
+    } catch (err) {
+      console.error('Delete trip error:', err);
+      setTripSaveMessage({ type: 'error', text: '삭제 중 오류가 발생했습니다.' });
+    }
+  };
+
+  const handleOpenSaveModal = () => {
+    if (myTripWaypoints.length < 2) {
+      setTripSaveMessage({ type: 'error', text: '2개 이상의 국가를 추가해주세요.' });
+      setTimeout(() => setTripSaveMessage(null), 2000);
+      return;
+    }
+    setTripSaveMessage(null);
+    setShowSaveTripModal(true);
+  };
+
+  const handleOpenLoadModal = () => {
+    setTripSaveMessage(null);
+    setShowLoadTripModal(true);
+    handleLoadSavedTrips();
+  };
+
+  // Preset Trip Handlers
+  const handleOpenPresetModal = () => {
+    setShowPresetModal(true);
+    setPresetContinent('아시아');
+  };
+
+  const handleSelectPresetTrip = (preset: TripPreset) => {
+    // 기존 여정이 있으면 확인 팝업
+    if (myTripWaypoints.length > 0) {
+      setConfirmPresetLoad(preset);
+    } else {
+      loadPresetTrip(preset);
+    }
+  };
+
+  const loadPresetTrip = (preset: TripPreset) => {
+    // 프리셋 waypoints를 실제 MyTripWaypoint로 변환
+    const newWaypoints: MyTripWaypoint[] = [];
+    preset.waypoints.forEach((pw, idx) => {
+      const country = WORLD_COUNTRIES.find((c) => c.code === pw.countryCode);
+      if (!country) {
+        console.warn(`Country not found: ${pw.countryCode}`);
+        return;
+      }
+
+      // 도시 코스인 경우 cityName과 custom lat/lng 사용
+      const isCityPreset = pw.cityName && pw.lat !== undefined && pw.lng !== undefined;
+      const displayName = isCityPreset ? `${pw.cityName} (${country.ko})` : country.ko;
+      const lat = isCityPreset ? pw.lat! : country.lat;
+      const lng = isCityPreset ? pw.lng! : country.lng;
+
+      newWaypoints.push({
+        id: `${pw.countryCode}-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 9)}`,
+        name: displayName,
+        countryCode: pw.countryCode,
+        lat: lat,
+        lng: lng,
+        order: idx,
+        transportToNext: pw.transportToNext,
+      });
+    });
+
+    setMyTripWaypoints(newWaypoints);
+    setMyTripProgress(0);
+    setMyTripIsPlaying(false);
+    setShowPresetModal(false);
+    setConfirmPresetLoad(null);
+
+    // 카메라 포커싱
+    if (leafletMapRef.current && newWaypoints.length > 0) {
+      const latLngs = newWaypoints.map((w) => [w.lat, w.lng] as [number, number]);
+      setTimeout(() => {
+        leafletMapRef.current?.fitBounds(L.latLngBounds(latLngs), { padding: [60, 60], maxZoom: 6 });
+      }, 100);
+    }
+  };
+
+  const handleConfirmPresetLoad = () => {
+    if (confirmPresetLoad) {
+      loadPresetTrip(confirmPresetLoad);
+    }
+  };
+
+  const handleCancelPresetLoad = () => {
+    setConfirmPresetLoad(null);
+  };
+
   // Loading state for hydration
   if (!mounted) {
     return (
@@ -1343,13 +2930,114 @@ export default function EarthTravel() {
   }
 
   return (
-    <div className="relative w-full h-screen overflow-hidden flex flex-col md:flex-row bg-slate-950 text-slate-100 font-sans select-none">
+    <div ref={cinemaContainerRef} className={`relative w-full h-screen overflow-hidden flex flex-col md:flex-row bg-slate-950 text-slate-100 font-sans select-none ${isCinemaMode ? 'cinema-mode' : ''}`}>
       {/* MAP */}
-      <div className="relative flex-1 h-[50vh] md:h-full w-full order-1 md:order-2">
+      <div className={`relative flex-1 w-full order-1 md:order-2 transition-all duration-500 ${isCinemaMode ? 'h-full' : 'h-[50vh] md:h-full'}`}>
         <div ref={mapContainerRef} className="w-full h-full z-0 bg-slate-900" />
 
-        {/* TOP OVERLAY */}
-        <div className="absolute top-4 left-4 right-4 md:left-6 md:right-6 z-30 pointer-events-none flex flex-wrap items-center justify-between gap-3">
+        {/* CINEMA MODE HUD */}
+        {isCinemaMode && cinemaHudInfo && (
+          <>
+            {/* Top HUD - Cinematic Subtitle */}
+            <div className="absolute top-0 left-0 right-0 z-[100] pointer-events-none">
+              <div className="bg-gradient-to-b from-black/70 via-black/30 to-transparent pt-6 pb-16 px-8">
+                <div className="flex flex-col items-center justify-center text-center">
+                  <div className="flex items-center gap-4 mb-3">
+                    <img src={`https://flagcdn.com/w40/${cinemaHudInfo.fromCode.toLowerCase()}.png`} alt="" className="w-10 h-7 rounded shadow-lg" />
+                    <span className="text-4xl">{cinemaHudInfo.transportEmoji}</span>
+                    <img src={`https://flagcdn.com/w40/${cinemaHudInfo.toCode.toLowerCase()}.png`} alt="" className="w-10 h-7 rounded shadow-lg" />
+                  </div>
+                  <h2 className="text-2xl md:text-3xl font-bold text-white drop-shadow-lg tracking-wide">
+                    {cinemaHudInfo.fromName.split('(')[0].trim()} → {cinemaHudInfo.toName.split('(')[0].trim()}
+                  </h2>
+                  <p className="text-sm md:text-base text-white/80 mt-2 font-medium">
+                    {cinemaHudInfo.transportEmoji} 구간 {cinemaHudInfo.legIndex + 1} / {cinemaHudInfo.totalLegs} 이동 중 • 시속 {cinemaHudInfo.speed.toLocaleString()}km/h
+                  </p>
+                  {cinemaHudInfo.isArriving && (
+                    <div className="mt-3 px-4 py-1.5 bg-emerald-500/90 text-white text-sm font-bold rounded-full animate-pulse shadow-lg">
+                      🎯 곧 도착합니다
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Mini Controller - Glassmorphism */}
+            <div className="absolute bottom-0 left-0 right-0 z-[100] pointer-events-auto">
+              <div className="bg-gradient-to-t from-black/70 via-black/30 to-transparent pb-6 pt-16 px-4">
+                <div className="max-w-2xl mx-auto">
+                  <div className="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 shadow-2xl p-4">
+                    {/* Progress Bar */}
+                    <div className="mb-4">
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.001"
+                        value={myTripProgress}
+                        onChange={(e) => {
+                          setMyTripIsPlaying(false);
+                          setMyTripProgress(parseFloat(e.target.value));
+                        }}
+                        className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer accent-violet-400"
+                      />
+                      <div className="flex justify-between text-xs text-white/60 mt-1 font-mono">
+                        <span>{Math.round(myTripProgress * 100)}%</span>
+                        <span>{myTripWaypoints.length}개 목적지</span>
+                      </div>
+                    </div>
+
+                    {/* Control Buttons */}
+                    <div className="flex items-center justify-between gap-4">
+                      {/* Play/Pause */}
+                      <button
+                        onClick={() => setMyTripIsPlaying(!myTripIsPlaying)}
+                        className="flex items-center justify-center w-14 h-14 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white text-2xl hover:brightness-110 active:scale-95 transition shadow-lg shadow-violet-500/30"
+                      >
+                        {myTripIsPlaying ? '⏸' : '▶'}
+                      </button>
+
+                      {/* Speed Controls */}
+                      <div className="flex items-center gap-1 bg-white/10 p-1 rounded-xl">
+                        {[0.5, 1, 2, 4].map((spd) => (
+                          <button
+                            key={spd}
+                            onClick={() => setMyTripSpeedMultiplier(spd)}
+                            className={`px-3 py-1.5 rounded-lg text-sm font-bold transition ${myTripSpeedMultiplier === spd ? 'bg-violet-500 text-white shadow' : 'text-white/70 hover:text-white'}`}
+                          >
+                            {spd}x
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Sound Toggle */}
+                      <button
+                        onClick={toggleSound}
+                        className={`flex items-center justify-center w-12 h-12 rounded-full transition ${isSoundEnabled ? 'bg-emerald-500/30 text-emerald-300 border-2 border-emerald-400/50' : 'bg-white/10 text-white/70 border-2 border-transparent hover:bg-white/20'}`}
+                        title="효과음 ON/OFF"
+                      >
+                        <span className="text-xl">{isSoundEnabled ? '🔊' : '🔇'}</span>
+                      </button>
+
+                      {/* Exit Cinema Mode */}
+                      <button
+                        onClick={exitCinemaMode}
+                        className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold transition border border-white/20"
+                      >
+                        <span>✕</span>
+                        <span className="hidden sm:inline">나가기</span>
+                        <span className="text-xs text-white/50 hidden md:inline">(ESC)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* TOP OVERLAY - Hidden in cinema mode */}
+        <div className={`absolute top-4 left-4 right-4 md:left-6 md:right-6 z-30 pointer-events-none flex flex-wrap items-center justify-between gap-3 transition-opacity duration-300 ${isCinemaMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
           {activeTab === 'cruise' ? (
             <div className="pointer-events-auto bg-slate-900/90 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-slate-700/70 shadow-2xl flex items-center space-x-3 text-sm">
               <span className="flex h-3 w-3 relative">
@@ -1382,6 +3070,32 @@ export default function EarthTravel() {
                       <span>{activeLegInfo.toName.split(' ')[0]}</span>
                       <span className="ml-1.5 text-cyan-300 font-mono text-xs">({activeLegInfo.legPercent}%)</span>
                     </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : activeTab === 'myTrip' ? (
+            <div className="pointer-events-auto bg-slate-900/90 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-violet-500/40 shadow-2xl flex items-center space-x-3 text-sm">
+              <span className="flex h-3 w-3 relative">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${myTripIsPlaying ? 'bg-violet-400' : 'bg-fuchsia-400'}`}></span>
+                <span className={`relative inline-flex rounded-full h-3 w-3 ${myTripIsPlaying ? 'bg-violet-500' : 'bg-fuchsia-500'}`}></span>
+              </span>
+              <div>
+                <div className="text-[11px] font-bold text-violet-300 flex items-center gap-1.5">
+                  ✈️ 나만의 여정 {myTripWaypoints.length > 0 && <span className="px-1.5 py-0.2 rounded-full bg-violet-400/20 text-[9px] font-mono text-violet-300 border border-violet-400/40">{myTripWaypoints.length}개국</span>}
+                </div>
+                <div className="font-semibold text-slate-200 text-xs sm:text-sm">
+                  {myTripWaypoints.length < 2 ? (
+                    <span className="text-slate-400">국가를 2개 이상 추가해주세요</span>
+                  ) : myTripIsPlaying ? (
+                    <span className="text-violet-300 flex items-center gap-1.5">
+                      <span>{myTripWaypoints[myTripCurrentMotion.currentLegIndex]?.name || ''}</span>
+                      <span className="text-fuchsia-400">➔</span>
+                      <span>{myTripWaypoints[myTripCurrentMotion.currentLegIndex + 1]?.name || myTripWaypoints[myTripWaypoints.length - 1]?.name}</span>
+                      <span className="ml-1 text-fuchsia-300 font-mono text-[10px]">({Math.round(myTripProgress * 100)}%)</span>
+                    </span>
+                  ) : (
+                    <span className="text-slate-300">{myTripWaypoints[0]?.name} → {myTripWaypoints[myTripWaypoints.length - 1]?.name}</span>
                   )}
                 </div>
               </div>
@@ -1429,18 +3143,31 @@ export default function EarthTravel() {
             <div>경도: <span className="font-mono text-cyan-300">{currentMotion.lng.toFixed(4)}</span></div>
           </div>
         )}
+        {activeTab === 'myTrip' && myTripWaypoints.length >= 2 && (
+          <div className="absolute bottom-6 left-6 z-10 hidden sm:flex items-center space-x-4 bg-slate-900/90 backdrop-blur-md border border-violet-500/40 px-4 py-2 rounded-xl text-xs text-slate-300 shadow-xl pointer-events-auto">
+            <div className="flex items-center space-x-1.5"><IconCompass className="w-4 h-4 text-violet-400" /><span>방위각: <strong className="text-white">{Math.round(myTripCurrentMotion.heading)}°</strong></span></div>
+            <div className="h-3 w-px bg-slate-700" />
+            <div>위도: <span className="font-mono text-violet-300">{myTripCurrentMotion.lat.toFixed(4)}</span></div>
+            <div>경도: <span className="font-mono text-violet-300">{myTripCurrentMotion.lng.toFixed(4)}</span></div>
+            <div className="h-3 w-px bg-slate-700" />
+            <div className="text-fuchsia-300">구간: {myTripCurrentMotion.currentLegIndex + 1}/{myTripWaypoints.length - 1}</div>
+          </div>
+        )}
       </div>
 
-      {/* SIDEBAR */}
-      <div className="w-full md:w-[450px] lg:w-[480px] h-[50vh] md:h-full bg-slate-900/95 border-t md:border-t-0 md:border-r border-slate-800 flex flex-col z-20 shadow-2xl order-2 md:order-1 overflow-hidden">
+      {/* SIDEBAR - Hidden in cinema mode */}
+      <div className={`w-full md:w-[450px] lg:w-[480px] h-[50vh] md:h-full bg-slate-900/95 border-t md:border-t-0 md:border-r border-slate-800 flex flex-col z-20 shadow-2xl order-2 md:order-1 overflow-hidden transition-all duration-500 ${isCinemaMode ? 'hidden' : ''}`}>
         {/* TAB SWITCHER */}
-        <div className="p-3 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between gap-2">
-          <div className="flex items-center bg-slate-900 p-1 rounded-2xl border border-slate-800 w-full">
-            <button onClick={() => setActiveTab('visited')} className={`flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-xl text-xs font-bold transition ${activeTab === 'visited' ? 'bg-gradient-to-r from-amber-500 to-rose-600 text-white shadow-lg shadow-amber-500/25' : 'text-slate-400 hover:text-slate-200'}`}>
-              <IconFlag className="w-4 h-4" /><span>가본 나라 깃발</span><span className="ml-1 px-1.5 py-0.2 rounded-full bg-black/25 text-[10px] font-mono">{visitedCountries.length}</span>
+        <div className="p-2 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between gap-2">
+          <div className="flex items-center bg-slate-900 p-0.5 rounded-2xl border border-slate-800 w-full">
+            <button onClick={() => setActiveTab('visited')} className={`flex-1 flex items-center justify-center space-x-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition ${activeTab === 'visited' ? 'bg-gradient-to-r from-amber-500 to-rose-600 text-white shadow-lg shadow-amber-500/25' : 'text-slate-400 hover:text-slate-200'}`}>
+              <IconFlag className="w-3.5 h-3.5" /><span>가본 나라</span><span className="px-1 py-0.2 rounded-full bg-black/25 text-[9px] font-mono">{visitedCountries.length}</span>
             </button>
-            <button onClick={() => setActiveTab('cruise')} className={`flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-xl text-xs font-bold transition ${activeTab === 'cruise' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-lg shadow-cyan-500/25' : 'text-slate-400 hover:text-slate-200'}`}>
-              <IconShip className="w-4 h-4" /><span>크루즈 항로</span>
+            <button onClick={() => setActiveTab('myTrip')} className={`flex-1 flex items-center justify-center space-x-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition ${activeTab === 'myTrip' ? 'bg-gradient-to-r from-violet-500 to-fuchsia-600 text-white shadow-lg shadow-violet-500/25' : 'text-slate-400 hover:text-slate-200'}`}>
+              <span>✈️</span><span>나만의 여정</span>{myTripWaypoints.length > 0 && <span className="px-1 py-0.2 rounded-full bg-black/25 text-[9px] font-mono">{myTripWaypoints.length}</span>}
+            </button>
+            <button onClick={() => setActiveTab('cruise')} className={`flex-1 flex items-center justify-center space-x-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition ${activeTab === 'cruise' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-lg shadow-cyan-500/25' : 'text-slate-400 hover:text-slate-200'}`}>
+              <IconShip className="w-3.5 h-3.5" /><span>크루즈</span>
             </button>
           </div>
         </div>
@@ -1556,7 +3283,7 @@ export default function EarthTravel() {
                                 <span>{c.ko}</span>
                                 {c.year && <span className="text-[10px] text-amber-400 font-mono font-medium">({c.year})</span>}
                               </div>
-                              {c.note && <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[180px]">"{c.note}"</div>}
+                              {c.note && <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[180px]">&quot;{c.note}&quot;</div>}
                             </div>
                           </div>
                           <button onClick={(e) => { e.stopPropagation(); handleRemoveVisitedCountry(c.code); }} className="p-1 rounded text-rose-400 hover:bg-rose-950/40 opacity-70 group-hover:opacity-100 transition"><IconTrash className="w-3.5 h-3.5" /></button>
@@ -1581,6 +3308,216 @@ export default function EarthTravel() {
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        ) : activeTab === 'myTrip' ? (
+          <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+            {/* PRESET TRIP BUTTON */}
+            <button onClick={handleOpenPresetModal} className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white text-sm font-bold hover:brightness-110 active:scale-[0.98] transition shadow-lg shadow-orange-500/25">
+              ✨ 추천 코스 둘러보기
+            </button>
+
+            {/* SAVE/LOAD BUTTONS & TOAST */}
+            <div className="flex items-center justify-between gap-2">
+              <button onClick={handleOpenSaveModal} className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-xs font-bold hover:brightness-110 active:scale-95 transition shadow-lg shadow-emerald-500/20">
+                💾 여정 저장
+              </button>
+              <button onClick={handleOpenLoadModal} className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold hover:brightness-110 active:scale-95 transition shadow-lg shadow-blue-500/20">
+                📂 불러오기
+              </button>
+            </div>
+            {tripSaveMessage && (
+              <div className={`text-center py-2 px-3 rounded-xl text-xs font-medium ${tripSaveMessage.type === 'success' ? 'bg-emerald-950/50 text-emerald-400 border border-emerald-500/30' : 'bg-rose-950/50 text-rose-400 border border-rose-500/30'}`}>
+                {tripSaveMessage.text}
+              </div>
+            )}
+
+            {/* MY TRIP PLAYBACK */}
+            <div className="bg-gradient-to-br from-violet-950/50 to-fuchsia-950/50 p-3.5 rounded-2xl border border-violet-500/40 space-y-3 shadow-inner">
+              <div className="flex items-center justify-between text-xs text-slate-300 font-medium">
+                <span className="flex items-center gap-2">✈️ 여정 시뮬레이션</span>
+                <div className="flex items-center space-x-2">
+                  <button onClick={() => setMyTripIsLooping(!myTripIsLooping)} className={`text-[10px] px-1.5 py-0.5 rounded-md transition border ${myTripIsLooping ? 'bg-violet-500/20 text-violet-300 border-violet-500/40' : 'bg-slate-700/50 text-slate-400 border-transparent'}`}>반복 {myTripIsLooping ? 'ON' : 'OFF'}</button>
+                  <button onClick={() => setMyTripCameraTracking(!myTripCameraTracking)} className={`text-[10px] px-1.5 py-0.5 rounded-md transition border ${myTripCameraTracking ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40' : 'bg-slate-700/50 text-slate-400 border-transparent'}`}>📷 {myTripCameraTracking ? 'ON' : 'OFF'}</button>
+                  <button onClick={toggleSound} className={`text-[10px] px-1.5 py-0.5 rounded-md transition border ${isSoundEnabled ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-700/50 text-slate-400 border-transparent'}`} title="효과음 (Web Audio)">🔊 {isSoundEnabled ? 'ON' : 'OFF'}</button>
+                </div>
+              </div>
+              {myTripWaypoints.length < 2 ? (
+                <div className="text-center py-4 text-slate-400 text-xs">2개 이상의 국가를 추가하면 여정을 시작할 수 있습니다</div>
+              ) : (
+                <>
+                  <input type="range" min="0" max="1" step="0.001" value={myTripProgress} onChange={(e) => { setMyTripIsPlaying(false); setMyTripProgress(parseFloat(e.target.value)); }} className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-violet-400" />
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center space-x-2">
+                      <button onClick={() => setMyTripIsPlaying(!myTripIsPlaying)} className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-600 text-white font-bold text-xs hover:brightness-110 active:scale-95 transition shadow-lg shadow-violet-500/20">{myTripIsPlaying ? '⏸ 일시정지' : '▶ 출발!'}</button>
+                      <button onClick={handleMyTripReset} className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">↺</button>
+                      {/* Cinema Mode Button */}
+                      <button
+                        onClick={enterCinemaMode}
+                        className="flex items-center space-x-1 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold text-[10px] hover:brightness-110 active:scale-95 transition shadow-lg shadow-amber-500/20"
+                        title="시네마 모드 (F)"
+                      >
+                        <span>🎬</span>
+                        <span className="hidden sm:inline">시네마</span>
+                      </button>
+                    </div>
+                    <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl border border-slate-700/80">
+                      {[0.5, 1, 2, 4].map((spd) => (
+                        <button key={spd} onClick={() => setMyTripSpeedMultiplier(spd)} className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold transition ${myTripSpeedMultiplier === spd ? 'bg-violet-500 text-white shadow' : 'text-slate-400 hover:text-white'}`}>{spd}x</button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* MY TRIP WAYPOINTS LIST */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-violet-300 flex items-center gap-1.5">🗺️ 내 여행 코스 ({myTripWaypoints.length})</h3>
+                {myTripWaypoints.length > 0 && (
+                  <button onClick={handleClearMyTrip} className="text-[10px] px-2 py-0.5 rounded bg-rose-950/50 text-rose-400 border border-rose-500/30 hover:bg-rose-900/50 transition">전체 삭제</button>
+                )}
+              </div>
+              {/* 총 거리/시간 요약 */}
+              {myTripWaypoints.length >= 2 && myTripTotalStats.totalKm > 0 && (
+                <div className="flex items-center justify-center gap-4 py-2 px-3 bg-gradient-to-r from-violet-950/60 to-fuchsia-950/60 rounded-xl border border-violet-500/30">
+                  <div className="flex items-center gap-1.5 text-[11px]">
+                    <span className="text-slate-400">총 거리</span>
+                    <span className="text-cyan-400 font-bold font-mono">{myTripTotalStats.formattedDistance}</span>
+                  </div>
+                  <div className="h-3 w-px bg-slate-700" />
+                  <div className="flex items-center gap-1.5 text-[11px]">
+                    <span className="text-slate-400">예상 이동시간</span>
+                    <span className="text-amber-400 font-bold font-mono">{myTripTotalStats.formattedTime}</span>
+                  </div>
+                </div>
+              )}
+              {myTripWaypoints.length === 0 ? (
+                <div className="text-center py-6 text-slate-500 text-xs bg-slate-900/50 rounded-xl border border-dashed border-slate-800">아래에서 국가를 검색해 여정에 추가하세요</div>
+              ) : (
+                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                  {myTripWaypoints.map((w, idx) => {
+                    const country = WORLD_COUNTRIES.find(c => c.code === w.countryCode);
+                    const isLast = idx === myTripWaypoints.length - 1;
+                    return (
+                      <div key={w.id} className="p-2 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-violet-500/50 transition">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] border ${idx === 0 ? 'bg-emerald-500 text-slate-950 border-emerald-300' : isLast ? 'bg-fuchsia-500 text-white border-fuchsia-300' : 'bg-slate-700 text-slate-300 border-slate-600'}`}>{idx === 0 ? '🚩' : isLast ? '🏁' : idx + 1}</div>
+                            <div className="flex items-center gap-1.5">
+                              <FlagIcon code={w.countryCode} fallbackEmoji={country?.flag || '🌐'} size="sm" />
+                              <span className="text-xs font-semibold text-slate-200">{w.name}</span>
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">{w.countryCode}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-1">
+                            <button onClick={() => handleMoveMyTripWaypoint(idx, idx - 1)} disabled={idx === 0} className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300">▲</button>
+                            <button onClick={() => handleMoveMyTripWaypoint(idx, idx + 1)} disabled={isLast} className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300">▼</button>
+                            <button onClick={() => handleRemoveFromMyTrip(w.id)} className="p-1 rounded text-rose-400 hover:bg-rose-950/40 transition"><IconTrash className="w-3.5 h-3.5" /></button>
+                          </div>
+                        </div>
+                        {!isLast && (
+                          <div className="mt-1.5 pt-1.5 border-t border-slate-800/50 space-y-1.5">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] text-slate-500">이동:</span>
+                              {(['plane', 'boat', 'train', 'bus', 'car'] as TransportMode[]).map((mode) => {
+                                const icons: Record<TransportMode, string> = { plane: '✈️', boat: '🚢', train: '🚆', bus: '🚌', car: '🚗' };
+                                const isActive = w.transportToNext === mode;
+                                return (
+                                  <button key={mode} onClick={() => handleSetLegTransport(idx, mode)} className={`text-[11px] px-1.5 py-0.5 rounded transition ${isActive ? 'bg-violet-500/30 border border-violet-400/50' : 'opacity-50 hover:opacity-100'}`}>{icons[mode]}</button>
+                                );
+                              })}
+                            </div>
+                            {myTripLegInfos[idx] && (
+                              <div className="flex items-center gap-2 text-[9px] text-slate-400 bg-slate-950/50 px-2 py-1 rounded-lg">
+                                <span className="flex items-center gap-1">📍 <span className="text-cyan-400 font-mono">{myTripLegInfos[idx].formattedDistance}</span></span>
+                                <span className="text-slate-600">·</span>
+                                <span className="flex items-center gap-1">⏱️ <span className="text-amber-400 font-mono">{myTripLegInfos[idx].formattedTime}</span></span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* CITY/LANDMARK SEARCH (Nominatim) */}
+            <div className="space-y-2 pt-2 border-t border-slate-800">
+              <label className="text-xs font-semibold text-slate-300">🔍 도시/랜드마크 검색</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={nominatimQuery}
+                  onChange={(e) => handleNominatimQueryChange(e.target.value)}
+                  onFocus={() => nominatimResults.length > 0 && setShowNominatimDropdown(true)}
+                  placeholder="예: 에펠탑, 도쿄, 콜로세움..."
+                  className="w-full bg-slate-900 border border-amber-700/50 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 transition"
+                />
+                {isSearchingNominatim ? (
+                  <div className="w-4 h-4 absolute left-3 top-2.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <IconSearch className="w-4 h-4 text-amber-400 absolute left-3 top-2.5" />
+                )}
+                {nominatimQuery && (
+                  <button onClick={() => { setNominatimQuery(''); setNominatimResults([]); setShowNominatimDropdown(false); }} className="absolute right-2.5 top-2.5 text-xs text-slate-400 hover:text-white">✕</button>
+                )}
+                {/* Search Results Dropdown */}
+                {showNominatimDropdown && nominatimResults.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                    {nominatimResults.map((result) => {
+                      const countryCode = result.address?.country_code?.toUpperCase() || 'XX';
+                      const cityName = result.name || result.display_name.split(',')[0];
+                      const countryInfo = WORLD_COUNTRIES.find(c => c.code === countryCode);
+                      return (
+                        <button
+                          key={result.place_id}
+                          onClick={() => handleSelectNominatimResult(result)}
+                          className="w-full text-left px-3 py-2 hover:bg-amber-950/40 border-b border-slate-800 last:border-b-0 transition flex items-center gap-2"
+                        >
+                          <FlagIcon code={countryCode} fallbackEmoji={countryInfo?.flag || '🌐'} size="sm" />
+                          <div className="flex-1 truncate">
+                            <div className="text-xs font-semibold text-white truncate">{cityName}</div>
+                            <div className="text-[10px] text-slate-400 truncate">{result.display_name}</div>
+                          </div>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">+</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500">전 세계 도시, 관광지, 랜드마크를 검색하여 여정에 추가하세요.</p>
+            </div>
+
+            {/* ADD COUNTRY SEARCH */}
+            <div className="space-y-2 pt-2 border-t border-slate-800">
+              <label className="text-xs font-semibold text-slate-300">🌍 나라 선택 (빠른 추가)</label>
+              <div className="relative">
+                <input type="text" value={myTripSearchQuery} onChange={(e) => setMyTripSearchQuery(e.target.value)} placeholder="예: 일본, 프랑스, 미국..." className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-400 transition" />
+                <IconSearch className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                {myTripSearchQuery && <button onClick={() => setMyTripSearchQuery('')} className="absolute right-2.5 top-2.5 text-xs text-slate-400 hover:text-white">✕</button>}
+              </div>
+              <div className="flex items-center gap-1 overflow-x-auto py-1 text-[11px] scrollbar-none">
+                {['전체', '아시아', '유럽', '아메리카', '오세아니아', '아프리카'].map((cont) => (
+                  <button key={cont} onClick={() => setMyTripFilterContinent(cont)} className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition text-[10px] ${myTripFilterContinent === cont ? 'bg-violet-500 text-white font-bold shadow' : 'bg-slate-800/60 text-slate-400 hover:text-slate-200'}`}>{cont}</button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                {myTripFilteredCountries.slice(0, 30).map((c) => (
+                  <button key={c.code} onClick={() => handleAddToMyTrip(c)} className="p-2 rounded-xl border text-left flex items-center justify-between transition cursor-pointer bg-slate-800/40 border-slate-700/50 text-slate-300 hover:bg-violet-950/30 hover:border-violet-500/50">
+                    <div className="flex items-center space-x-2 truncate">
+                      <FlagIcon code={c.code} fallbackEmoji={c.flag} size="md" />
+                      <div className="truncate"><div className="text-xs font-semibold truncate">{c.ko}</div><div className="text-[9px] text-slate-500 font-mono">[{c.code}]</div></div>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-violet-500/20 text-violet-300 border border-violet-500/30">+</span>
+                  </button>
+                ))}
+              </div>
+              {myTripFilteredCountries.length > 30 && <div className="text-center text-[10px] text-slate-500">+ {myTripFilteredCountries.length - 30}개 더</div>}
             </div>
           </div>
         ) : (
@@ -1746,6 +3683,209 @@ export default function EarthTravel() {
         onClose={() => setIsPassportModalOpen(false)}
         visitedCountries={visitedCountries}
       />
+
+      {/* Save Trip Modal */}
+      {showSaveTripModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-violet-500/40 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">💾 여정 저장</h2>
+              <button onClick={() => { setShowSaveTripModal(false); setTripSaveMessage(null); }} className="text-slate-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">여정 제목</label>
+                <input
+                  type="text"
+                  value={saveTripTitle}
+                  onChange={(e) => setSaveTripTitle(e.target.value)}
+                  placeholder="예: 2026 이탈리아 일주"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-400 transition"
+                />
+              </div>
+              <div className="bg-slate-800/50 rounded-xl p-3 space-y-2">
+                <div className="text-xs text-slate-400">저장할 여정 정보</div>
+                <div className="flex items-center gap-4 text-sm">
+                  <span className="text-violet-300 font-semibold">{myTripWaypoints.length}개국</span>
+                  <span className="text-cyan-400">{myTripTotalStats.formattedDistance}</span>
+                  <span className="text-amber-400">{myTripTotalStats.formattedTime}</span>
+                </div>
+                <div className="text-[10px] text-slate-500 truncate">
+                  {myTripWaypoints.map(w => w.name).join(' → ')}
+                </div>
+              </div>
+              {tripSaveMessage && (
+                <div className={`text-center py-2 rounded-lg text-xs ${tripSaveMessage.type === 'success' ? 'bg-emerald-950/50 text-emerald-400' : 'bg-rose-950/50 text-rose-400'}`}>
+                  {tripSaveMessage.text}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button onClick={() => { setShowSaveTripModal(false); setTripSaveMessage(null); }} className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-sm font-medium hover:bg-slate-700 transition">취소</button>
+              <button onClick={handleSaveTrip} disabled={isSavingTrip || !saveTripTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-sm font-bold hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                {isSavingTrip ? '저장 중...' : '저장하기'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Trip Modal */}
+      {showLoadTripModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-blue-500/40 rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">📂 저장된 여정 불러오기</h2>
+              <button onClick={() => { setShowLoadTripModal(false); setTripSaveMessage(null); }} className="text-slate-400 hover:text-white text-xl">&times;</button>
+            </div>
+            {tripSaveMessage && (
+              <div className={`text-center py-2 rounded-lg text-xs ${tripSaveMessage.type === 'success' ? 'bg-emerald-950/50 text-emerald-400' : 'bg-rose-950/50 text-rose-400'}`}>
+                {tripSaveMessage.text}
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {isLoadingTrips ? (
+                <div className="text-center py-8 text-slate-400 text-sm">불러오는 중...</div>
+              ) : savedTrips.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-sm">저장된 여정이 없습니다.</div>
+              ) : (
+                savedTrips.map((trip) => (
+                  <div key={trip.id} className="p-3 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-blue-500/50 transition group">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleSelectSavedTrip(trip)}>
+                        <div className="text-sm font-semibold text-white truncate">{trip.title}</div>
+                        <div className="flex items-center gap-3 mt-1 text-[11px]">
+                          <span className="text-violet-300">{trip.waypoints.length}개국</span>
+                          <span className="text-cyan-400">{trip.total_distance_km >= 1000 ? `${(trip.total_distance_km / 1000).toFixed(1)}천km` : `${Math.round(trip.total_distance_km).toLocaleString()}km`}</span>
+                          <span className="text-amber-400">{formatTravelTime(trip.total_time_hours)}</span>
+                        </div>
+                        <div className="text-[9px] text-slate-500 mt-1 truncate">
+                          {trip.waypoints.map(w => w.name).join(' → ')}
+                        </div>
+                        <div className="text-[9px] text-slate-600 mt-0.5">
+                          {new Date(trip.created_at).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 ml-2">
+                        <button onClick={() => handleSelectSavedTrip(trip)} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-500 transition">불러오기</button>
+                        <button onClick={() => handleDeleteSavedTrip(trip.id)} className="p-1.5 rounded-lg bg-rose-950/50 text-rose-400 hover:bg-rose-900/50 transition">
+                          <IconTrash className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <button onClick={() => { setShowLoadTripModal(false); setTripSaveMessage(null); }} className="w-full py-2.5 rounded-xl bg-slate-800 text-slate-300 text-sm font-medium hover:bg-slate-700 transition">닫기</button>
+          </div>
+        </div>
+      )}
+
+      {/* Preset Trip Modal */}
+      {showPresetModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-orange-500/40 rounded-2xl shadow-2xl w-full max-w-2xl p-6 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">✨ 추천 여행 코스</h2>
+              <button onClick={() => setShowPresetModal(false)} className="text-slate-400 hover:text-white text-xl">&times;</button>
+            </div>
+
+            {/* Continent Tabs */}
+            <div className="flex items-center gap-1 p-1 bg-slate-800/50 rounded-xl overflow-x-auto">
+              {(['아시아', '유럽', '아프리카', '미주', '도시코스'] as PresetContinent[]).map((cont) => {
+                const icons: Record<PresetContinent, string> = { '아시아': '🌏', '유럽': '🏰', '아프리카': '🦁', '미주': '🗽', '도시코스': '🏙️' };
+                return (
+                  <button
+                    key={cont}
+                    onClick={() => setPresetContinent(cont)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition whitespace-nowrap ${presetContinent === cont ? 'bg-gradient-to-r from-orange-500 to-rose-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    <span>{icons[cont]}</span>
+                    <span>{cont}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Preset Cards */}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {TRIP_PRESETS.filter((p) => p.continent === presetContinent).map((preset) => {
+                const badgeColors: Record<string, string> = {
+                  emerald: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
+                  violet: 'bg-violet-500/20 text-violet-400 border-violet-500/40',
+                  amber: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+                  cyan: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40',
+                  rose: 'bg-rose-500/20 text-rose-400 border-rose-500/40',
+                  orange: 'bg-orange-500/20 text-orange-400 border-orange-500/40',
+                  lime: 'bg-lime-500/20 text-lime-400 border-lime-500/40',
+                  blue: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
+                  fuchsia: 'bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/40',
+                  indigo: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40',
+                  slate: 'bg-slate-500/20 text-slate-400 border-slate-500/40',
+                };
+                const transportIcons: Record<TransportMode, string> = { plane: '✈️', boat: '🚢', train: '🚆', bus: '🚌', car: '🚗' };
+
+                return (
+                  <div key={preset.id} className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-orange-500/50 transition group">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-base font-bold text-white">{preset.title}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${badgeColors[preset.badgeColor] || badgeColors.amber}`}>{preset.badge}</span>
+                        </div>
+                        <div className="text-xs text-slate-400 mt-1">{preset.description}</div>
+                        <div className="flex items-center gap-1 mt-2 flex-wrap">
+                          {preset.waypoints.map((pw, idx) => {
+                            const country = WORLD_COUNTRIES.find((c) => c.code === pw.countryCode);
+                            const isLast = idx === preset.waypoints.length - 1;
+                            // 도시 코스인 경우 도시 이름 표시, 아니면 국가 이름
+                            const displayLabel = pw.cityName || country?.ko || pw.countryCode;
+                            return (
+                              <span key={`${preset.id}-${idx}`} className="flex items-center gap-0.5">
+                                <span className="flex items-center gap-1 text-[10px] text-slate-300 bg-slate-900/50 px-1.5 py-0.5 rounded">
+                                  <img src={`https://flagcdn.com/w20/${pw.countryCode.toLowerCase()}.png`} alt={pw.countryCode} className="w-3 h-2 rounded-sm object-cover" />
+                                  {displayLabel}
+                                </span>
+                                {!isLast && <span className="text-[10px] text-slate-500 mx-0.5">{transportIcons[pw.transportToNext || 'plane']}</span>}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleSelectPresetTrip(preset)}
+                        className="shrink-0 px-4 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-rose-500 text-white text-xs font-bold hover:brightness-110 active:scale-95 transition shadow-lg shadow-orange-500/20"
+                      >
+                        이 코스로 시작
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button onClick={() => setShowPresetModal(false)} className="w-full py-2.5 rounded-xl bg-slate-800 text-slate-300 text-sm font-medium hover:bg-slate-700 transition">닫기</button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Preset Load Modal */}
+      {confirmPresetLoad && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-amber-500/50 rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <div className="text-center">
+              <div className="text-4xl mb-3">⚠️</div>
+              <h3 className="text-lg font-bold text-white">기존 여정 덮어쓰기</h3>
+              <p className="text-sm text-slate-400 mt-2">현재 작성 중인 여정이 있습니다.<br/>&quot;{confirmPresetLoad.title}&quot; 코스로 대체할까요?</p>
+            </div>
+            <div className="flex items-center gap-3 pt-2">
+              <button onClick={handleCancelPresetLoad} className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-sm font-medium hover:bg-slate-700 transition">취소</button>
+              <button onClick={handleConfirmPresetLoad} className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-bold hover:brightness-110 transition">덮어쓰기</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
