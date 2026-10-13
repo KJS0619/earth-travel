@@ -3,6 +3,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { toPng } from 'html-to-image';
 import { getFlagUrl } from './FlagIcon';
+import { isNativeApp, shareImageNative } from '@/lib/nativeShare';
 
 interface VisitedCountry {
   code: string;
@@ -30,7 +31,7 @@ export default function TravelPassportModal({ isOpen, onClose, visitedCountries 
 
   useEffect(() => {
     // Check if Web Share API is available
-    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && !isNativeApp()) {
       setCanShare(true);
     }
   }, []);
@@ -57,6 +58,25 @@ export default function TravelPassportModal({ isOpen, onClose, visitedCountries 
         pixelRatio: 2, // High resolution
         backgroundColor: '#0f172a',
       });
+
+      if (isNativeApp()) {
+        // 앱(Capacitor)에서는 다운로드 링크가 동작하지 않으므로 파일로 저장한 뒤 공유 시트를 연다.
+        try {
+          await shareImageNative(
+            dataUrl,
+            `my-travel-passport-${Date.now()}.png`,
+            '나의 여행 여권',
+            `🌍 ${totalCountries}개국 탐험 완료! 전 세계 ${worldPercent}% 정복`,
+          );
+        } catch (shareErr) {
+          const msg = String((shareErr as { message?: string })?.message ?? shareErr);
+          if (!/cancel/i.test(msg)) {
+            console.error('Native share error:', shareErr);
+            alert('이미지 저장·공유에 실패했습니다. 다시 시도해주세요.');
+          }
+        }
+        return;
+      }
 
       const link = document.createElement('a');
       link.download = `my-travel-passport-${Date.now()}.png`;
@@ -241,7 +261,7 @@ export default function TravelPassportModal({ isOpen, onClose, visitedCountries 
             disabled={isDownloading || visitedCountries.length === 0}
             className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-900 font-bold rounded-xl hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isDownloading ? '⏳ 생성 중...' : '📥 이미지 다운로드 (PNG)'}
+            {isDownloading ? '⏳ 생성 중...' : isNativeApp() ? '📥 이미지 저장·공유' : '📥 이미지 다운로드 (PNG)'}
           </button>
           {canShare && (
             <button
