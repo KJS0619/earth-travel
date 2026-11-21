@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import TravelStickerModal from './TravelStickerModal';
 import TravelPassportModal from './TravelPassportModal';
 import FlagIcon from './FlagIcon';
+import CountryOutlinePrintModal from './CountryOutlinePrintModal';
 
 // Supabase initialization
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -1536,6 +1537,7 @@ export default function EarthTravel() {
 
   // Map
   const [mapTheme, setMapTheme] = useState<'dark' | 'satellite' | 'light' | 'korean'>('dark');
+  const [showCountryOutlinePrint, setShowCountryOutlinePrint] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
@@ -3180,6 +3182,9 @@ export default function EarthTravel() {
               <IconMaximize2 className="w-3.5 h-3.5" />
               <span className="text-[11px] hidden sm:inline">맞춤</span>
             </button>
+            <button onClick={() => setShowCountryOutlinePrint(true)} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-cyan-300 transition cursor-pointer border border-slate-700" title="백지도 인쇄">
+              <span aria-hidden="true">🖨️</span><span className="text-[11px] hidden sm:inline">지도 인쇄</span>
+            </button>
           </div>
         </div>
 
@@ -3983,6 +3988,7 @@ export default function EarthTravel() {
           </div>
         </div>
       )}
+      <CountryOutlinePrintModal open={showCountryOutlinePrint} onClose={() => setShowCountryOutlinePrint(false)} countryOptions={WORLD_COUNTRIES} />
     </div>
   );
 }

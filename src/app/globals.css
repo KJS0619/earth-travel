@@ -51,6 +51,38 @@ body {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
 }
 
+.country-outline-print-root { display: none; }
+.country-outline-map { display: block; width: 100%; height: auto; }
+
+@page { size: A4 landscape; margin: 0; }
+
+@media print {
+  body.country-outline-printing > *:not(.country-outline-print-root) { display: none !important; }
+  body.country-outline-printing .country-outline-print-root { display: block !important; color: #111827; background: white; }
+  body.country-outline-printing .country-outline-print-page {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    width: 297mm;
+    height: 210mm;
+    padding: 8mm;
+    overflow: hidden;
+    break-after: page;
+    page-break-after: always;
+    background: white;
+  }
+  body.country-outline-printing .country-outline-print-page:last-child { break-after: auto; page-break-after: auto; }
+  body.country-outline-printing .country-outline-print-header {
+    display: flex;
+    flex: 0 0 8mm;
+    align-items: center;
+    justify-content: space-between;
+    color: #273244;
+    font: 10pt Arial, sans-serif;
+  }
+  body.country-outline-printing .country-outline-print-map { flex: 1; width: 100%; min-height: 0; }
+}
+
 .leaflet-tooltip-top:before {
   border-top-color: rgba(15, 23, 42, 0.95) !important;
 }
