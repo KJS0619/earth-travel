@@ -485,6 +485,34 @@ interface NominatimResult {
   class: string;
 }
 
+function buildGoogleMapsUrl(from: MyTripWaypoint, to: MyTripWaypoint, mode: TransportMode): string {
+  if (mode === 'plane' || mode === 'boat') {
+    const url = new URL('https://www.google.com/maps/search/');
+    url.searchParams.set('api', '1');
+    url.searchParams.set('query', `${to.lat},${to.lng}`);
+    return url.toString();
+  }
+  const url = new URL('https://www.google.com/maps/dir/');
+  url.searchParams.set('api', '1');
+  url.searchParams.set('origin', `${from.lat},${from.lng}`);
+  url.searchParams.set('destination', `${to.lat},${to.lng}`);
+  url.searchParams.set('travelmode', mode === 'car' ? 'driving' : 'transit');
+  return url.toString();
+}
+
+function buildKakaoMapsUrl(from: MyTripWaypoint, to: MyTripWaypoint, mode: TransportMode): string {
+  if (mode === 'plane' || mode === 'boat') {
+    return `http://m.map.kakao.com/scheme/look?p=${to.lat},${to.lng}`;
+  }
+  const travelMode = mode === 'car' ? 'car' : 'publictransit';
+  return `http://m.map.kakao.com/scheme/route?sp=${from.lat},${from.lng}&ep=${to.lat},${to.lng}&by=${travelMode}`;
+}
+
+function buildNaverMapsUrl(to: MyTripWaypoint): string {
+  const searchName = to.name.replace(/\s+\([^)]*\)\s*$/, '').trim() || `${to.lat},${to.lng}`;
+  return `https://map.naver.com/p/search/${encodeURIComponent(searchName)}`;
+}
+
 // Preset Trip Data
 const TRIP_PRESETS: TripPreset[] = [
   // 아시아
@@ -1712,7 +1740,9 @@ export default function EarthTravel() {
     if (pts.length < 2) return { lat: 0, lng: 0, heading: 0, currentLegIndex: 0 };
 
     const maxIdx = pts.length - 1;
-    const clampedProgress = Math.max(0, Math.min(1, myTripProgress));
+    const clampedProgress = Number.isFinite(myTripProgress)
+      ? Math.max(0, Math.min(1, myTripProgress))
+      : 0;
     const floatIdx = clampedProgress * maxIdx;
     const lowerIdx = Math.floor(floatIdx);
     const upperIdx = Math.ceil(floatIdx);
@@ -1734,6 +1764,17 @@ export default function EarthTravel() {
 
     return { lat, lng, heading, currentLegIndex };
   }, [myTripRouteData.routePoints, myTripProgress, myTripWaypoints.length]);
+
+  const activeTripLeg = myTripWaypoints.length >= 2
+    ? myTripWaypoints[myTripCurrentMotion.currentLegIndex]
+    : undefined;
+  const activeTripDestination = myTripWaypoints.length >= 2
+    ? myTripWaypoints[myTripCurrentMotion.currentLegIndex + 1]
+    : undefined;
+  const activeTripTransport = activeTripLeg?.transportToNext || 'plane';
+  const naverMapsUrl = activeTripDestination
+    ? buildNaverMapsUrl(activeTripDestination)
+    : null;
 
   // 구간별 거리/시간 계산
   const myTripLegInfos = useMemo((): MyTripLegInfo[] => {
@@ -2703,11 +2744,19 @@ export default function EarthTravel() {
     // Calculate which leg we're on based on progress
     const totalLegs = myTripWaypoints.length - 1;
     const progressPerLeg = 1 / totalLegs;
-    const currentLegIdx = Math.min(Math.floor(myTripProgress / progressPerLeg), totalLegs - 1);
+    const safeProgress = Number.isFinite(myTripProgress)
+      ? Math.max(0, Math.min(1, myTripProgress))
+      : 0;
+    const currentLegIdx = Math.max(0, Math.min(Math.floor(safeProgress * totalLegs), totalLegs - 1));
 
     const fromWaypoint = myTripWaypoints[currentLegIdx];
     const toWaypoint = myTripWaypoints[currentLegIdx + 1];
-    const transport = fromWaypoint.transportToNext || 'plane';
+    if (!fromWaypoint || !toWaypoint) return null;
+
+    const configuredTransport = fromWaypoint.transportToNext;
+    const transport = configuredTransport && configuredTransport in TRANSPORT_SPEEDS
+      ? configuredTransport
+      : 'plane';
     const speed = TRANSPORT_SPEEDS[transport];
 
     const transportEmojis: Record<TransportMode, string> = {
@@ -2716,7 +2765,7 @@ export default function EarthTravel() {
 
     // Calculate leg progress
     const legStartProgress = currentLegIdx * progressPerLeg;
-    const legProgress = (myTripProgress - legStartProgress) / progressPerLeg;
+    const legProgress = Math.max(0, Math.min(1, (safeProgress - legStartProgress) / progressPerLeg));
 
     return {
       fromName: fromWaypoint.name,
@@ -3371,6 +3420,54 @@ export default function EarthTravel() {
               )}
             </div>
 
+            {activeTripLeg && activeTripDestination && (
+              <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/80 p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-bold text-cyan-300">현재 구간 길찾기</h3>
+                  <span className="text-[10px] text-slate-500">{myTripCurrentMotion.currentLegIndex + 1} / {myTripWaypoints.length - 1} 구간</span>
+                </div>
+                <p className="text-xs font-semibold text-white break-words">
+                  {activeTripLeg.name} <span className="text-cyan-400">→</span> {activeTripDestination.name}
+                </p>
+                <p className="text-[10px] leading-4 text-slate-400">
+                  {activeTripTransport === 'plane' || activeTripTransport === 'boat'
+                    ? '항공·선박 구간은 아래 지도에서 도착지를 엽니다. 예약과 운항 시간은 해당 제공처에서 확인하세요.'
+                    : '지도 애니메이션은 두 여행지 사이의 개략 이동선입니다. 실제 도로·철도 경로와 환승은 지도 앱에서 확인하세요.'}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <a
+                    href={buildGoogleMapsUrl(activeTripLeg, activeTripDestination, activeTripTransport)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-center gap-1 rounded-lg bg-white px-2 py-2 text-[10px] font-bold text-slate-800 hover:bg-slate-100"
+                  >
+                    Google 지도 ↗
+                  </a>
+                  <a
+                    href={buildKakaoMapsUrl(activeTripLeg, activeTripDestination, activeTripTransport)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-center gap-1 rounded-lg bg-yellow-300 px-2 py-2 text-[10px] font-bold text-slate-900 hover:bg-yellow-200"
+                  >
+                    카카오맵 ↗
+                  </a>
+                  {naverMapsUrl && (
+                    <a
+                      href={naverMapsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="col-span-2 flex items-center justify-center gap-1 rounded-lg bg-emerald-500 px-2 py-2 text-[10px] font-bold text-white hover:bg-emerald-400"
+                    >
+                      네이버 지도 웹에서 목적지 검색 ↗
+                    </a>
+                  )}
+                </div>
+                {(activeTripTransport === 'plane' || activeTripTransport === 'boat') && (
+                  <p className="text-[9px] leading-4 text-amber-300/80">이동 애니메이션은 도시 간 참고용이며 실제 항공·선박 항로를 나타내지 않습니다.</p>
+                )}
+              </div>
+            )}
+
             {/* MY TRIP WAYPOINTS LIST */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -3383,12 +3480,12 @@ export default function EarthTravel() {
               {myTripWaypoints.length >= 2 && myTripTotalStats.totalKm > 0 && (
                 <div className="flex items-center justify-center gap-4 py-2 px-3 bg-gradient-to-r from-violet-950/60 to-fuchsia-950/60 rounded-xl border border-violet-500/30">
                   <div className="flex items-center gap-1.5 text-[11px]">
-                    <span className="text-slate-400">총 거리</span>
+                    <span className="text-slate-400">직선거리 합계</span>
                     <span className="text-cyan-400 font-bold font-mono">{myTripTotalStats.formattedDistance}</span>
                   </div>
                   <div className="h-3 w-px bg-slate-700" />
                   <div className="flex items-center gap-1.5 text-[11px]">
-                    <span className="text-slate-400">예상 이동시간</span>
+                    <span className="text-slate-400">참고용 이동시간</span>
                     <span className="text-amber-400 font-bold font-mono">{myTripTotalStats.formattedTime}</span>
                   </div>
                 </div>
