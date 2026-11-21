@@ -69,6 +69,7 @@ export default function CountryOutlinePrintModal({ open, onClose, countryOptions
   const [data, setData] = useState<MapData | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedCode, setSelectedCode] = useState('KR');
+  const [selectedWorldCodes, setSelectedWorldCodes] = useState<string[]>(['KR', 'JP']);
   const [layout, setLayout] = useState<Layout>('country');
   const [scale, setScale] = useState<100 | 200 | 300>(100);
   const [language, setLanguage] = useState<Language>('ko');
@@ -89,8 +90,10 @@ export default function CountryOutlinePrintModal({ open, onClose, countryOptions
   }, [open, data, loading]);
 
   const selectedCountry = countryOptions.find((country) => country.code === selectedCode) ?? countryOptions[0];
+  const selectedWorldCountries = countryOptions.filter((country) => selectedWorldCodes.includes(country.code));
   const selectedShapes = useMemo(() => data?.countries.filter((shape) => shape.code === selectedCode) ?? [], [data, selectedCode]);
   const referenceShape = selectedShapes[0];
+  const worldCountryShapes = useMemo(() => (data?.countries ?? []).filter((shape) => selectedWorldCodes.includes(shape.code)), [data, selectedWorldCodes]);
   const centerLongitude = layout === 'world' ? 0 : referenceShape?.center[0] ?? 0;
   const centerLatitude = layout === 'world' ? 15 : referenceShape?.center[1] ?? 0;
   const xCorrection = layout === 'world' ? 1 : Math.max(0.18, Math.cos(centerLatitude * Math.PI / 180));
@@ -160,11 +163,11 @@ export default function CountryOutlinePrintModal({ open, onClose, countryOptions
       return [left + (x - minX) * fit, top + (y - minY) * fit];
     };
     const paths = [
-      ...activeShapes.map((shape, index) => ({ key: `country-${shape.code}-${index}`, d: geometryPath(shape.geometry, project), selected: shape.code === selectedCode, admin: false })),
+      ...activeShapes.map((shape, index) => ({ key: `country-${shape.code}-${index}`, d: geometryPath(shape.geometry, project), selected: layout === 'world' ? selectedWorldCodes.includes(shape.code) : shape.code === selectedCode, admin: false })),
       ...adminShapes.map((shape, index) => ({ key: `admin-${shape.code3}-${shape.name}-${index}`, d: geometryPath(shape.geometry, project), selected: false, admin: true })),
     ].filter((shape) => shape.d.length > 0);
     return { project, paths };
-  }, [activeShapes, adminShapes, cities, selectedCode, centerLongitude, xCorrection, layout, atlasWidth, atlasHeight]);
+  }, [activeShapes, adminShapes, cities, selectedCode, selectedWorldCodes, centerLongitude, xCorrection, layout, atlasWidth, atlasHeight]);
 
   const printPages = () => {
     document.body.classList.add('country-outline-printing');
@@ -180,13 +183,15 @@ export default function CountryOutlinePrintModal({ open, onClose, countryOptions
   if (!open || typeof document === 'undefined') return null;
 
   const renderMap = (viewBox: string) => (
-    <svg className="country-outline-map" viewBox={viewBox} role="img" aria-label={`${localizedName(referenceShape ?? {}, language)} map`} preserveAspectRatio="xMidYMid meet">
+    <svg className="country-outline-map" viewBox={viewBox} role="img" aria-label={layout === 'world' ? 'World map with selected countries highlighted' : `${localizedName(referenceShape ?? {}, language)} map`} preserveAspectRatio="xMidYMid meet">
       <rect x={viewBox.split(' ')[0]} y={viewBox.split(' ')[1]} width={GRID_UNIT.width} height={GRID_UNIT.height} fill="white" />
       {paths.map((shape) => <path key={shape.key} d={shape.d} fill={shape.selected ? '#eef5fb' : 'none'} fillRule="evenodd" stroke={shape.admin ? '#94a3b8' : shape.selected ? '#142a3c' : '#657789'} strokeWidth={shape.admin ? 1.15 : shape.selected ? 2.4 : 1.7} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />)}
-      {layout === 'world' && referenceShape && (() => {
-        const point = project(referenceShape.center);
-        return <g><circle cx={point[0]} cy={point[1]} r="8" fill="#0e7490" stroke="white" strokeWidth="3" vectorEffect="non-scaling-stroke"/><text x={point[0] + 13} y={point[1] - 10} fontSize="18" fontWeight="700" fill="#0f2638" stroke="white" strokeWidth="5" paintOrder="stroke">{localizedName(referenceShape, language)}</text></g>;
-      })()}
+      {layout === 'world' && worldCountryShapes.map((shape, index) => {
+        const point = project(shape.center);
+        const textAnchor = index % 2 === 0 ? 'start' : 'end';
+        const xOffset = index % 2 === 0 ? 12 : -12;
+        return <g key={`world-label-${shape.code}-${index}`}><circle cx={point[0]} cy={point[1]} r="8" fill="#0e7490" stroke="white" strokeWidth="3" vectorEffect="non-scaling-stroke"/><text x={point[0] + xOffset} y={point[1] - 10} textAnchor={textAnchor} fontSize="18" fontWeight="700" fill="#0f2638" stroke="white" strokeWidth="5" paintOrder="stroke">{localizedName(shape, language)}</text></g>;
+      })}
       {cities.map((city) => {
         const point = visitCityPoint(city);
         if (!point) return null;
@@ -210,7 +215,7 @@ export default function CountryOutlinePrintModal({ open, onClose, countryOptions
         </header>
         <div className="grid gap-3 overflow-y-auto p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
           <label className="text-xs font-semibold text-slate-300">지도 형태<select value={layout} onChange={(event) => setLayout(event.target.value as Layout)} className="mt-1.5 block w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-white"><option value="country">선택 국가 백지도</option><option value="world">세계 국가 위치도</option></select></label>
-          <label className="text-xs font-semibold text-slate-300">국가 선택<select value={selectedCode} onChange={(event) => setSelectedCode(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-white">{countryOptions.map((country) => <option key={country.code} value={country.code}>{country.flag} {country.ko}</option>)}</select></label>
+          {layout === 'country' ? <label className="text-xs font-semibold text-slate-300">국가 선택<select value={selectedCode} onChange={(event) => setSelectedCode(event.target.value)} className="mt-1.5 block w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-white">{countryOptions.map((country) => <option key={country.code} value={country.code}>{country.flag} {country.ko}</option>)}</select></label> : <fieldset className="sm:col-span-2 lg:col-span-4"><legend className="text-xs font-semibold text-slate-300">강조할 나라 여러 개 선택 · {selectedWorldCodes.length}개 선택</legend><div className="mt-1.5 grid max-h-36 grid-cols-2 gap-x-3 gap-y-1 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-2 sm:grid-cols-3 lg:grid-cols-5">{countryOptions.map((country) => <label key={country.code} className="flex min-w-0 items-center gap-1.5 rounded px-1.5 py-1 text-xs text-slate-200 hover:bg-slate-800"><input type="checkbox" checked={selectedWorldCodes.includes(country.code)} onChange={(event) => setSelectedWorldCodes((current) => event.target.checked ? [...current, country.code] : current.filter((code) => code !== country.code))} className="h-3.5 w-3.5 shrink-0 accent-cyan-500"/><span className="truncate" title={country.ko}>{country.flag} {country.ko}</span></label>)}</div><div className="mt-1 flex justify-end gap-2"><button type="button" onClick={() => setSelectedWorldCodes([])} className="rounded px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-800">전체 해제</button><button type="button" onClick={() => setSelectedWorldCodes(countryOptions.map((country) => country.code))} className="rounded px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-800">모두 선택</button></div></fieldset>}
           <label className="text-xs font-semibold text-slate-300">지도 표기<select value={language} onChange={(event) => setLanguage(event.target.value as Language)} className="mt-1.5 block w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-white"><option value="ko">한국어</option><option value="ja">日本語</option><option value="en">English</option></select></label>
           <label className="text-xs font-semibold text-slate-300">인쇄 확대<select value={scale} onChange={(event) => setScale(Number(event.target.value) as 100 | 200 | 300)} className="mt-1.5 block w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-white"><option value={100}>100% · 1장</option><option value={200}>200% · 4장</option><option value={300}>300% · 9장</option></select></label>
           <label className={`flex items-center gap-2 text-sm text-slate-300 ${layout === 'world' ? 'opacity-50' : ''}`}><input type="checkbox" checked={showAdmin} disabled={layout === 'world'} onChange={(event) => setShowAdmin(event.target.checked)} className="h-4 w-4 accent-cyan-500"/>도·주 경계선</label>
@@ -222,7 +227,7 @@ export default function CountryOutlinePrintModal({ open, onClose, countryOptions
           {!loading && data && renderMap(`0 0 ${GRID_UNIT.width} ${GRID_UNIT.height}`)}
         </div>
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 p-4 sm:p-5">
-          <p className="text-xs leading-5 text-slate-400">{layout === 'world' ? '선택한 나라를 강조해 국가 간 위치를 보여줍니다.' : `${selectedCountry?.ko ?? ''} 백지도 · A4 가로 · ${columns}×${rows} ${columns * rows}장${scale > 100 ? ' · 이어 붙이기 쉽게 가장자리 중첩' : ''}`}</p>
+          <p className="text-xs leading-5 text-slate-400">{layout === 'world' ? `${selectedWorldCountries.length}개 나라를 동시에 강조합니다.` : `${selectedCountry?.ko ?? ''} 백지도 · A4 가로 · ${columns}×${rows} ${columns * rows}장${scale > 100 ? ' · 이어 붙이기 쉽게 가장자리 중첩' : ''}`}</p>
           <button type="button" disabled={!data || loading} onClick={printPages} className="rounded-xl bg-cyan-500 px-5 py-2.5 text-sm font-bold text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50">인쇄 / PDF 저장</button>
         </footer>
       </section>
@@ -234,7 +239,7 @@ export default function CountryOutlinePrintModal({ open, onClose, countryOptions
           const y = page.row * atlasStepY;
           const viewBox = `${x} ${y} ${GRID_UNIT.width} ${GRID_UNIT.height}`;
           return <section className="country-outline-print-page" key={`print-${page.row}-${page.column}`}>
-            <header className="country-outline-print-header"><strong>{selectedCountry?.flag} {localizedName(referenceShape ?? {}, language)}{layout === 'world' ? (language === 'ko' ? ' · 세계 국가 위치도' : language === 'ja' ? ' · 世界の国位置図' : ' · World map') : (language === 'ko' ? ' · 백지도' : language === 'ja' ? ' · 白地図' : ' · Outline map')}</strong><span>{index + 1} / {pageViews.length}</span></header>
+            <header className="country-outline-print-header"><strong>{layout === 'world' ? `${selectedWorldCountries.length}${language === 'ko' ? '개국 강조 · 세계 국가 위치도' : language === 'ja' ? 'か国を強調 · 世界の国位置図' : ' countries highlighted · World map'}` : `${selectedCountry?.flag} ${localizedName(referenceShape ?? {}, language)}${language === 'ko' ? ' · 백지도' : language === 'ja' ? ' · 白地図' : ' · Outline map'}`}</strong><span>{index + 1} / {pageViews.length}</span></header>
             {renderMap(viewBox)}
           </section>;
         })}
